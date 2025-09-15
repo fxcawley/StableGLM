@@ -1,0 +1,16 @@
+[
+  {"name": "core", "color": "1f77b4", "description": "Core GLM, HVP, CG, calibration"},
+  {"name": "sampling", "color": "ff7f0e", "description": "Hit-and-Run, diagnostics"},
+  {"name": "bounds", "color": "2ca02c", "description": "Ellipsoid certificates and validity"},
+  {"name": "metrics", "color": "d62728", "description": "VIC, MCR, ambiguity, discrepancy, capacity"},
+  {"name": "fairness", "color": "9467bd", "description": "Fairness metrics and datasets"},
+  {"name": "infra", "color": "8c564b", "description": "Packaging, CI, tooling"},
+  {"name": "docs", "color": "e377c2", "description": "Documentation and tutorials"},
+  {"name": "release", "color": "7f7f7f", "description": "Packaging and PyPI"},
+  {"name": "paper", "color": "bcbd22", "description": "Report and MLOSS"},
+  {"name": "experimental", "color": "17becf", "description": "Experimental features"},
+  {"name": "redteam", "color": "db2828", "description": "Red-team experiments"},
+  {"name": "P0", "color": "000000", "description": "Must-have"},
+  {"name": "P1", "color": "555555", "description": "Should-have"},
+  {"name": "P2", "color": "aaaaaa", "description": "Nice-to-have"}
+]

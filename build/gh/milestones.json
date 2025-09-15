@@ -1,0 +1,8 @@
+[
+  {"title": "Gate 1: Core + Calibration + Certificates", "state": "open", "description": "End W2", "due_on": null},
+  {"title": "Gate 2: Sampler Validated or Kill-Switch", "state": "open", "description": "End W5", "due_on": null},
+  {"title": "Gate 3: VIC/MCR Functional", "state": "open", "description": "End W7", "due_on": null},
+  {"title": "Gate 4: Ambiguity/Discrepancy/Capacity", "state": "open", "description": "End W9", "due_on": null},
+  {"title": "Gate 5: Benchmarks + Red-team", "state": "open", "description": "End W11", "due_on": null},
+  {"title": "Gate 6: Release + Paper", "state": "open", "description": "W12", "due_on": null}
+]

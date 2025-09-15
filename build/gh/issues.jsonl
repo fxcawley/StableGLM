@@ -1,0 +1,39 @@
+{"title":"A1 Repo scaffold and dev tooling","labels":["infra","P0"],"body":"Create package skeleton, pyproject, ruff/black/mypy, pre-commit.","milestone":"Gate 1: Core + Calibration + Certificates"}
+{"title":"A2 CI matrix, wheels, coverage, BLAS diversity","labels":["infra","P0"],"body":"GH Actions (Linux/Win/macOS, py3.9–3.12), OpenBLAS+MKL, coverage≥90% core.","milestone":"Gate 1: Core + Calibration + Certificates"}
+{"title":"A3 Docs scaffold (Sphinx+MyST)","labels":["docs","P1"],"body":"Docs build locally/CI; index, overview, reference placeholders.","milestone":"Gate 1: Core + Calibration + Certificates"}
+{"title":"B5 RashomonSet API skeleton","labels":["core","P0"],"body":".fit(X,y), params, validation; global measure setting added in B5b.","milestone":"Gate 1: Core + Calibration + Certificates"}
+{"title":"B6 Deterministic GLM solvers + guardrails","labels":["core","P0"],"body":"L2 logistic/linear, near-separation detection, kappa(H), min W diag, min margin, fail thresholds.","milestone":"Gate 1: Core + Calibration + Certificates"}
+{"title":"B7 HVP API","labels":["core","P0"],"body":"Logistic Hv=X^T W Xv + λv; Linear Hv=X^TX v/n + λv.","milestone":"Gate 1: Core + Calibration + Certificates"}
+{"title":"B8 CG solves + conditioning diagnostics","labels":["core","P0"],"body":"CG with tolerances, iteration caps, convergence flags; kappa-estimate.","milestone":"Gate 1: Core + Calibration + Certificates"}
+{"title":"B9 ε calibration (Wilks checks)","labels":["core","P0"],"body":"Percent-loss and LR-α; print implied α; warn on Wilks precondition violations; default to percent.","milestone":"Gate 1: Core + Calibration + Certificates"}
+{"title":"B9b Penalized LR bootstrap fallback","labels":["core","stats","P0"],"body":"Parametric bootstrap calibration ≤60s for n≤1e4; CI for α.","milestone":"Gate 1: Core + Calibration + Certificates"}
+{"title":"C10 Linear hacking intervals","labels":["bounds","P0"],"body":"Closed-form s^Tθ extrema with ||s||_{H^{-1}}; tests.","milestone":"Gate 1: Core + Calibration + Certificates"}
+{"title":"C11 Per-point margin/p-bands (Lipschitz)","labels":["bounds","P0"],"body":"Margin intervals and logistic p-bands via Lipschitz; plot.","milestone":"Gate 1: Core + Calibration + Certificates"}
+{"title":"C12 Tight p-intervals (1D)","labels":["bounds","P1"],"body":"1D monotone extremization along H^{-1}s; replace Lipschitz option.","milestone":"Gate 2: Sampler Validated or Kill-Switch"}
+{"title":"C13 Trust-region validity radius","labels":["bounds","P1"],"body":"Conservative r(ε,α) via φ''' bounds; shaded trust band in plots.","milestone":"Gate 2: Sampler Validated or Kill-Switch"}
+{"title":"D14 Membership oracle","labels":["sampling","P0"],"body":"Vectorized penalized NLL; cached Xθ; tolerances.","milestone":"Gate 2: Sampler Validated or Kill-Switch"}
+{"title":"D15 Hit-and-Run with robust line search","labels":["sampling","P0"],"body":"Bracket expansion to sign change; safeguarded Newton; termination guarantees.","milestone":"Gate 2: Sampler Validated or Kill-Switch"}
+{"title":"D16 Directions + preconditioning toggle","labels":["sampling","P1"],"body":"Gaussian/block-coordinate; LR-geometry whitening toggle.","milestone":"Gate 2: Sampler Validated or Kill-Switch"}
+{"title":"D17 H^{-1/2} approx (Lanczos/Chebyshev)","labels":["sampling","P1"],"body":"Relative-error target; fallback to diag+low-rank precond; spectrum estimate.","milestone":"Gate 2: Sampler Validated or Kill-Switch"}
+{"title":"D18 Diagnostics (ESS/min, chords, isotropy)","labels":["sampling","ux","P0"],"body":"Chord stats, ESS/min, set-fidelity, isotropy>5× flag.","milestone":"Gate 2: Sampler Validated or Kill-Switch"}
+{"title":"D19 Sampler validation suite","labels":["sampling","P1"],"body":"Ellipsoid ground-truth tests, histogram tests, reproducibility.","milestone":"Gate 2: Sampler Validated or Kill-Switch"}
+{"title":"E20 VIC + plots","labels":["metrics","P0"],"body":"Compute distributions and cloud plots.","milestone":"Gate 3: VIC/MCR Functional"}
+{"title":"E21 Shapley-VIC with runtime caps","labels":["metrics","P1"],"body":"Stratified coalitions; CI early stop; 60s cap/feature.","milestone":"Gate 3: VIC/MCR Functional"}
+{"title":"E22 MCR (perm) with correlation options","labels":["metrics","P0"],"body":"perm=iid|group|residual; warnings on collinearity; confidence display.","milestone":"Gate 3: VIC/MCR Functional"}
+{"title":"E23 MCR trust-region surrogate (exp)","labels":["metrics","experimental","P3"],"body":"Quadratic surrogate behind flag; caution in docs.","milestone":"Gate 3: VIC/MCR Functional"}
+{"title":"E24 Ambiguity via margins (τ)","labels":["metrics","P0"],"body":"Ambiguity certificate; threshold integration.","milestone":"Gate 4: Ambiguity/Discrepancy/Capacity"}
+{"title":"E24b Threshold regimes API","labels":["metrics","ux","P0"],"body":"threshold=fixed|match_prevalence|match_fpr|cost_opt; docs and defaults.","milestone":"Gate 4: Ambiguity/Discrepancy/Capacity"}
+{"title":"E25 Discrepancy bound + pairs","labels":["metrics","P0"],"body":"Deterministic upper bound + empirical estimator.","milestone":"Gate 4: Ambiguity/Discrepancy/Capacity"}
+{"title":"E26 Rashomon capacity (δ-covering)","labels":["metrics","stats","P1"],"body":"L∞ on dataset; δ-sensitivity curve; consistency note.","milestone":"Gate 4: Ambiguity/Discrepancy/Capacity"}
+{"title":"F27 Datasets + fairness toggles/policy","labels":["data","fairness","P0"],"body":"Loaders; ethics/policy note; exclude protected attr + subgroup eval toggles.","milestone":"Gate 4: Ambiguity/Discrepancy/Capacity"}
+{"title":"F28 Tightness study","labels":["eval","P0"],"body":"Analytic vs empirical extrema across ε-grid.","milestone":"Gate 5: Benchmarks + Red-team"}
+{"title":"F29 Scaling study","labels":["eval","P1"],"body":"Runtime and ESS/min across (n,d) grid.","milestone":"Gate 5: Benchmarks + Red-team"}
+{"title":"F30 Baselines (CIs, bootstrap VI, L1, NN)","labels":["eval","P1"],"body":"Parity plots and reproducible pipelines.","milestone":"Gate 5: Benchmarks + Red-team"}
+{"title":"F31 Red-team: collinearity sweep","labels":["eval","redteam","P1"],"body":"Show CIs stable vs widening VIC/MCR and ambiguity.","milestone":"Gate 5: Benchmarks + Red-team"}
+{"title":"F32 Red-team: proxy fairness toy","labels":["fairness","redteam","P1"],"body":"Fairness ranges across ε clarify policy sensitivity.","milestone":"Gate 5: Benchmarks + Red-team"}
+{"title":"G31 API hardening + diagnostics","labels":["ux","P0"],"body":"Rich diagnostics incl. trust fraction; status codes.","milestone":"Gate 6: Release + Paper"}
+{"title":"G32 Plotting API","labels":["ux","plots","P1"],"body":"vic_cloud, prediction_bands, sampler diagnostics.","milestone":"Gate 6: Release + Paper"}
+{"title":"G33 Tutorials and examples","labels":["docs","P1"],"body":"E2E notebooks <3 min; CI smoke tests.","milestone":"Gate 6: Release + Paper"}
+{"title":"G34 Packaging and PyPI release","labels":["release","P0"],"body":"Versioned wheels; README badges; changelog.","milestone":"Gate 6: Release + Paper"}
+{"title":"G35 Paper-style report + MLOSS draft","labels":["paper","P1"],"body":"Reproducible figures; methods/ablations aligned.","milestone":"Gate 6: Release + Paper"}
+{"title":"G36 from_ensemble(models) parity","labels":["api","P1"],"body":"Metrics from external ensembles; diagnostics parity.","milestone":"Gate 3: VIC/MCR Functional"}
