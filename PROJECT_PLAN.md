@@ -67,11 +67,51 @@ Goal: Deliver `rashomon-py`, a rigorously grounded toolkit to define and sample 
 - Metrics Engineer: owns VIC/MCR/capacity implementations and plots.
 - Docs/Release: owns docs, tutorials, packaging, and paper draft.
 
-## Issue Tracking & Labels
+## Issue Backlog (initial)
 
-- Components: [core], [sampling], [metrics], [fairness], [infra], [docs], [release], [paper].
-- Priority: P0 (must), P1 (should), P2 (nice).
-- Status: todo → in_progress → blocked → done.
+Format: ID | Title | Labels | Est | Deps | Sprint
+
+- A1 | Repo scaffold and dev tooling | [infra,P0] | 1d | — | W1
+- A2 | CI matrix, wheels, coverage, BLAS diversity | [infra,P0] | 1d | A1 | W1
+- A3 | Docs scaffold (Sphinx+MyST), API autodoc | [docs,P1] | 1d | A1 | W1
+- A4 | Governance and licensing | [ops,P2] | 0.5d | — | W1
+- B5 | `RashomonSet` API skeleton | [core,P0] | 1d | A1 | W1
+- B5b | Global measure setting and annotation | [core,ux,P0] | 0.5d | B5 | W1
+- B6 | Deterministic GLM solvers + guardrails | [core,P0] | 2d | B5 | W1–W2
+- B7 | HVP API | [core,P0] | 1d | B6 | W2
+- B8 | CG solves + conditioning diagnostics | [core,P0] | 2d | B7 | W2
+- B9 | ε calibration (Wilks checks) | [core,P0] | 1d | B6 | W1
+- B9b | Penalized LR bootstrap fallback | [core,stats,P0] | 1d | B6,B9 | W1
+- C10 | Linear hacking intervals | [bounds,P0] | 1d | B8,B9 | W2
+- C11 | Per-point margin/p-bands (Lipschitz) | [bounds,P0] | 1.5d | C10 | W2
+- C12 | Tight p-intervals (1D) | [bounds,P1] | 2d | C11 | W2–W3
+- C13 | Trust-region validity radius | [bounds,P1] | 1d | B7–B9 | W2–W3
+- D14 | Membership oracle | [sampling,P0] | 1d | B6–B9,C10–C13 | W3
+- D15 | Hit-and-Run with robust line search | [sampling,P0] | 2d | D14 | W3
+- D16 | Directions + preconditioning toggle | [sampling,P1] | 1d | D15 | W3
+- D17 | H^{-1/2} approx (Lanczos/Chebyshev) | [sampling,P1] | 2d | B8,D16 | W4
+- D18 | Diagnostics (ESS/min, chords, isotropy) | [sampling,ux,P0] | 1d | D15–D17 | W4
+- D19 | Sampler validation suite | [sampling,P1] | 1d | D18 | W4–W5
+- E20 | VIC + plots | [metrics,P0] | 2d | D18–D19 | W6
+- E21 | Shapley-VIC (runtime/quality caps) | [metrics,P1] | 2d | E20 | W6–W7
+- E22 | MCR (perm) with correlation options | [metrics,P0] | 2d | D18,E20 | W6–W7
+- E23 | MCR trust-region surrogate (exp) | [metrics,experimental,P3] | 2d | E22 | W7
+- E24 | Ambiguity via margins | [metrics,P0] | 1d | C11–C12 | W8
+- E24b | Threshold regimes API | [metrics,ux,P0] | 0.5d | E24 | W2 (pulled up)
+- E25 | Discrepancy bound + pairs | [metrics,P0] | 2d | D18,E24 | W8–W9
+- E26 | Rashomon capacity (δ-covering) | [metrics,stats,P1] | 3d | D18 | W8–W9
+- F27 | Datasets + fairness toggles/policy | [data,fairness,P0] | 2d | E24–E26 | W8–W9
+- F28 | Tightness study | [eval,P0] | 2d | C10–C13,D19 | W9–W10
+- F29 | Scaling study | [eval,P1] | 2d | D18–D19 | W10–W11
+- F30 | Baselines (CIs, bootstrap VI, L1, NN) | [eval,P1] | 3d | E20–E26 | W10–W11
+- F31 | Red-team: collinearity sweep | [eval,redteam,P1] | 1d | E20–E26 | W10
+- F32 | Red-team: proxy fairness toy | [fairness,redteam,P1] | 1d | F27,E24b | W10
+- G31 | API hardening + diagnostics | [ux,P0] | 1d | D18,B9–B9b,C13 | W10
+- G32 | Plotting API | [ux,plots,P1] | 1.5d | E20–E26 | W10
+- G33 | Tutorials and examples | [docs,P1] | 2d | G32,F28–F30 | W11
+- G34 | Packaging and PyPI release | [release,P0] | 1d | A2–A3,G31–G33 | W12
+- G35 | Paper-style report + MLOSS draft | [paper,P1] | 3d | F28–F32,G33 | W12
+- G36 | `from_ensemble(models)` parity | [api,P1] | 1.5d | E20–E26 | W7–W8
 
 ## References
 
