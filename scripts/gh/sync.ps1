@@ -36,13 +36,19 @@ foreach ($m in $milestones) {
   }
 }
 
-# Create issues from JSONL
+# Issues (idempotent)
+$existingIssues = gh issue list --limit 1000 --json title,number | ConvertFrom-Json
 Get-Content "build/gh/issues.jsonl" | ForEach-Object {
   $obj = $_ | ConvertFrom-Json
-  $args = @("issue","create","--title", $obj.title, "--body", $obj.body)
-  foreach ($lab in $obj.labels) { $args += @("--label", $lab) }
-  if ($obj.milestone) { $args += @("--milestone", $obj.milestone) }
-  gh @args | Out-Null
+  $found = $existingIssues | Where-Object { $_.title -eq $obj.title }
+  $labelArgs = @(); foreach ($lab in $obj.labels) { $labelArgs += @("--label", $lab) }
+  $msArg = @(); if ($obj.milestone) { $msArg = @("--milestone", $obj.milestone) }
+  if ($found) {
+    # Update labels and milestone on existing issue
+    gh issue edit $found.number @labelArgs @msArg | Out-Null
+  } else {
+    gh issue create --title $obj.title --body $obj.body @labelArgs @msArg | Out-Null
+  }
 }
 
 Write-Output "Sync complete."

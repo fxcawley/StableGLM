@@ -12,5 +12,12 @@
   {"name": "redteam", "color": "db2828", "description": "Red-team experiments"},
   {"name": "P0", "color": "000000", "description": "Must-have"},
   {"name": "P1", "color": "555555", "description": "Should-have"},
-  {"name": "P2", "color": "aaaaaa", "description": "Nice-to-have"}
+  {"name": "P2", "color": "aaaaaa", "description": "Nice-to-have"},
+  {"name": "P3", "color": "cccccc", "description": "Deprioritized/experimental"},
+  {"name": "ux", "color": "0366d6", "description": "User experience and diagnostics"},
+  {"name": "stats", "color": "0e8a16", "description": "Statistical calibration and theory"},
+  {"name": "eval", "color": "fbca04", "description": "Evaluation and benchmarking"},
+  {"name": "data", "color": "5319e7", "description": "Datasets and loaders"},
+  {"name": "api", "color": "1b998b", "description": "Public API surfaces"},
+  {"name": "plots", "color": "e99695", "description": "Plotting and visualization"}
 ]
