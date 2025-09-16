@@ -38,3 +38,4 @@ htmlcov/
 coverage.xml
 
 !build/gh/
+\n# Track build/gh via exceptions\n!build/\nbuild/*\n!build/gh/\n!build/gh/**\n
