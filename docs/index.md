@@ -8,4 +8,6 @@ Welcome to StableGLM. This site documents the Rashomon-GLM toolkit.
 
 guide/overview
 api/reference
+project_plan
+reproducibility
 ```
