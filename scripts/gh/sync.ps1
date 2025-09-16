@@ -29,7 +29,6 @@ $milestones = Get-Content -Raw -Path "build/gh/milestones.json" | ConvertFrom-Js
 foreach ($m in $milestones) {
   gh api "/repos/$Repo/milestones" --method POST -H "Accept: application/vnd.github+json" -f title="$($m.title)" -f state="$($m.state)" -f description="$($m.description)" 2>$null
   if ($LASTEXITCODE -ne 0) {
-    # Try to find milestone number and update
     $existing = gh api "/repos/$Repo/milestones" --paginate | ConvertFrom-Json | Where-Object { $_.title -eq $m.title }
     if ($existing) {
       gh api "/repos/$Repo/milestones/$($existing.number)" --method PATCH -f state="$($m.state)" -f description="$($m.description)" | Out-Null
@@ -40,14 +39,10 @@ foreach ($m in $milestones) {
 # Create issues from JSONL
 Get-Content "build/gh/issues.jsonl" | ForEach-Object {
   $obj = $_ | ConvertFrom-Json
-  $msTitle = $obj.milestone
-  $msNum = (gh api "/repos/$Repo/milestones" | ConvertFrom-Json | Where-Object { $_.title -eq $msTitle }).number
-  $labelsCsv = ($obj.labels -join ",")
-  if ($msNum) {
-    gh issue create --title $obj.title --body $obj.body --label $labelsCsv --milestone $msNum | Out-Null
-  } else {
-    gh issue create --title $obj.title --body $obj.body --label $labelsCsv | Out-Null
-  }
+  $args = @("issue","create","--title", $obj.title, "--body", $obj.body)
+  foreach ($lab in $obj.labels) { $args += @("--label", $lab) }
+  if ($obj.milestone) { $args += @("--milestone", $obj.milestone) }
+  gh @args | Out-Null
 }
 
 Write-Output "Sync complete."
