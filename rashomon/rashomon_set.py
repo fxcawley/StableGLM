@@ -301,6 +301,36 @@ class RashomonSet:
             return (scores > 0.0).astype(int)
         return scores
 
+    def probability_bands(self, X: Array) -> Array:
+        """Per-sample probability bands for logistic models via hacking intervals.
+
+        For each row x, computes an interval [p_min, p_max] where
+        p_min = σ(z_min), p_max = σ(z_max), and [z_min, z_max] is the
+        hacking interval of s := x in parameter space using the
+        H^{-1}-norm ellipsoid certificate.
+
+        Returns an array of shape (n, 2) with columns [p_min, p_max].
+        """
+        if self.estimator != "logistic":
+            raise NotImplementedError("probability_bands is only defined for logistic models")
+        if not self._fitted:
+            raise RuntimeError("Call fit() first.")
+        X = np.asarray(X)
+        if X.ndim != 2 or X.shape[1] != self._d:
+            raise ValueError("X must be 2D with d features")
+        out = np.empty((X.shape[0], 2), dtype=float)
+        for i in range(X.shape[0]):
+            s = X[i]
+            interval = self.hacking_interval(s)
+            zmin, zmax = interval["min"], interval["max"]
+            pmin, pmax = float(_sigmoid(zmin)), float(_sigmoid(zmax))
+            # Ensure ordering in case of numerical edge equality
+            if pmin > pmax:
+                pmin, pmax = pmax, pmin
+            out[i, 0] = pmin
+            out[i, 1] = pmax
+        return out
+
     # --------------------------- Sklearn-style attrs -----------------------
     @property
     def coef_(self) -> Array:

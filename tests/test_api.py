@@ -54,6 +54,15 @@ def test_predictive_api_logistic():
     assert rs.coef_.shape == (X.shape[1],)
     assert rs.n_features_in_ == X.shape[1]
 
+    # probability bands contain predicted probabilities' point estimate
+    bands = rs.probability_bands(X[:5])
+    assert bands.shape == (5, 2)
+    # center probability using theta_hat must lie within bands
+    scores5 = rs.decision_function(X[:5])
+    p_center = 1.0 / (1.0 + np.exp(-scores5))
+    assert np.all(bands[:, 0] <= p_center + 1e-12)
+    assert np.all(p_center <= bands[:, 1] + 1e-12)
+
 
 def test_predictive_api_linear():
     rng = np.random.default_rng(3)
