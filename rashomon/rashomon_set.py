@@ -168,6 +168,8 @@ class RashomonSet:
         diag: Dict[str, Any] = {
             "n": self._n,
             "d": self._d,
+            "L_hat": self._L_hat,
+            "theta_norm_2": float(np.linalg.norm(self._theta_hat)) if self._theta_hat is not None else None,
             "epsilon": self._epsilon_value,
             "epsilon_mode": self.epsilon_mode,
             "implied_alpha": self._implied_alpha,
@@ -196,11 +198,75 @@ class RashomonSet:
         delta = float(np.sqrt(2.0 * self._epsilon_value) * hinv_norm)
         return {"min": center - delta, "max": center + delta}
 
+    def objective(self, theta: Array) -> float:
+        """Compute penalized objective L(θ) at parameter θ.
+
+        L(θ) = average loss + (λ/2)||θ||^2
+        """
+        if not self._fitted:
+            raise RuntimeError("Call fit() first.")
+        if self._X is None or self._y is None or self._lambda is None:
+            raise RuntimeError("Model not fully initialized.")
+        theta = np.asarray(theta, dtype=float)
+        if theta.ndim != 1 or theta.shape[0] != self._d:
+            raise ValueError("theta must be a 1D vector of length d")
+        if self.estimator == "logistic":
+            return self._logistic_loss(self._X, self._y, theta, self._lambda)
+        resid = self._y - self._X @ theta
+        return float(0.5 * np.mean(resid ** 2) + 0.5 * self._lambda * float(theta @ theta))
+
+    def loss_gap(self, theta: Array) -> float:
+        """Return L(θ) - L(θ̂)."""
+        if self._L_hat is None:
+            raise RuntimeError("Call fit() first.")
+        return float(self.objective(theta) - self._L_hat)
+
+    def contains(self, theta: Array, atol: float = 1e-12) -> bool:
+        """Return True if θ is inside the ε-Rashomon set: L(θ) - L(θ̂) ≤ ε."""
+        if self._epsilon_value is None:
+            raise RuntimeError("Call fit() first.")
+        return bool(self.loss_gap(theta) <= self._epsilon_value + float(atol))
+
+    # --------------------------- Predictive API ----------------------------
+    def decision_function(self, X: Array) -> Array:
+        if not self._fitted or self._theta_hat is None:
+            raise RuntimeError("Call fit() first.")
+        X = np.asarray(X)
+        if X.ndim != 2 or X.shape[1] != self._d:
+            raise ValueError("X must be 2D with d features")
+        return (X @ self._theta_hat).astype(float, copy=False)
+
+    def predict_proba(self, X: Array) -> Array:
+        if self.estimator != "logistic":
+            raise NotImplementedError("predict_proba is only defined for logistic models")
+        scores = self.decision_function(X)
+        p = _sigmoid(scores)
+        return np.vstack([1.0 - p, p]).T
+
+    def predict(self, X: Array) -> Array:
+        scores = self.decision_function(X)
+        if self.estimator == "logistic":
+            return (scores > 0.0).astype(int)
+        return scores
+
+    # --------------------------- Sklearn-style attrs -----------------------
+    @property
+    def coef_(self) -> Array:
+        if not self._fitted or self._theta_hat is None:
+            raise RuntimeError("Call fit() first.")
+        return self._theta_hat
+
+    @property
+    def n_features_in_(self) -> int:
+        if not self._fitted:
+            raise RuntimeError("Call fit() first.")
+        return int(self._d)
+
     # ------------------------------ Internals -------------------------------
     def _fit_linear_ridge(self, X: Array, y: Array, lam: float) -> Tuple[Array, float]:
         n, d = X.shape
         if _HAS_SK:
-            model = Ridge(alpha=lam, fit_intercept=False, random_state=self.random_state)
+            model = Ridge(alpha=lam, fit_intercept=False)
             model.fit(X, y)
             theta = model.coef_.astype(float, copy=False)
         else:
