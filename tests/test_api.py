@@ -83,3 +83,21 @@ def test_diagnostics_fields():
     assert diag["measure"] in {"param", "lr"}
 
 
+def test_vectorized_membership_matches_scalar():
+    X, y = _make_data(n=40, d=5, seed=7)
+    rs = RashomonSet(estimator="logistic", random_state=0).fit(X, y)
+
+    rng = np.random.default_rng(0)
+    Theta = rng.normal(size=(8, rs.n_features_in_))
+    # include theta_hat ensure at least one True
+    Theta[0] = rs.coef_
+
+    gaps_many = rs.loss_gap_many(Theta)
+    gaps_scalar = np.array([rs.loss_gap(t) for t in Theta])
+    assert np.allclose(gaps_many, gaps_scalar, atol=1e-10)
+
+    mask_many = rs.contains_many(Theta)
+    mask_scalar = np.array([rs.contains(t) for t in Theta])
+    assert np.array_equal(mask_many, mask_scalar)
+
+

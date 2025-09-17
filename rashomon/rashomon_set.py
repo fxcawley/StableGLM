@@ -227,6 +227,58 @@ class RashomonSet:
             raise RuntimeError("Call fit() first.")
         return bool(self.loss_gap(theta) <= self._epsilon_value + float(atol))
 
+    # ---------------------- Vectorized membership (D14) ---------------------
+    def objective_many(self, Theta: Array) -> Array:
+        """Vectorized penalized objective for a batch of parameters.
+
+        Parameters
+        ----------
+        Theta : array-like of shape (k, d)
+            Rows are parameter vectors θ_j.
+
+        Returns
+        -------
+        np.ndarray of shape (k,)
+            Values L(θ_j) for each row.
+        """
+        if not self._fitted:
+            raise RuntimeError("Call fit() first.")
+        if self._X is None or self._y is None or self._lambda is None:
+            raise RuntimeError("Model not fully initialized.")
+        T = np.asarray(Theta, dtype=float)
+        if T.ndim == 1:
+            T = T[None, :]
+        if T.ndim != 2 or T.shape[1] != self._d:
+            raise ValueError("Theta must have shape (k, d)")
+        lam = self._lambda
+        if self.estimator == "logistic":
+            # z = X @ Theta^T  (n, k)
+            z = self._X @ T.T
+            # Stable logistic loss using logaddexp(0, z)
+            loss_terms = np.logaddexp(0.0, z) - self._y[:, None] * z
+            data = np.mean(loss_terms, axis=0)
+        else:
+            resid = self._y[:, None] - (self._X @ T.T)
+            data = 0.5 * np.mean(resid * resid, axis=0)
+        reg = 0.5 * lam * np.sum(T * T, axis=1)
+        return (data + reg).astype(float, copy=False)
+
+    def loss_gap_many(self, Theta: Array) -> Array:
+        """Vectorized loss gap: L(θ_j) - L(θ̂) for rows of Theta."""
+        if self._L_hat is None:
+            raise RuntimeError("Call fit() first.")
+        return self.objective_many(Theta) - float(self._L_hat)
+
+    def contains_many(self, Theta: Array, atol: float = 1e-12) -> Array:
+        """Vectorized membership oracle: return mask of rows inside ε-set.
+
+        Returns a boolean array of shape (k,).
+        """
+        if self._epsilon_value is None:
+            raise RuntimeError("Call fit() first.")
+        gaps = self.loss_gap_many(Theta)
+        return (gaps <= self._epsilon_value + float(atol))
+
     # --------------------------- Predictive API ----------------------------
     def decision_function(self, X: Array) -> Array:
         if not self._fitted or self._theta_hat is None:
