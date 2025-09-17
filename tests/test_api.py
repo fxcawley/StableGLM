@@ -101,3 +101,17 @@ def test_vectorized_membership_matches_scalar():
     assert np.array_equal(mask_many, mask_scalar)
 
 
+def test_hacking_interval_linear_bounds():
+    # For linear model, hacking_interval on s should bound s^T theta
+    rng = np.random.default_rng(10)
+    X = rng.normal(size=(60, 6))
+    true_w = rng.normal(size=6)
+    y = X @ true_w + 0.1 * rng.normal(size=60)
+    rs = RashomonSet(estimator="linear", random_state=0).fit(X, y)
+
+    s = rng.normal(size=6)
+    interval = rs.hacking_interval(s)
+    val = float(s @ rs.coef_)
+    assert interval["min"] <= val <= interval["max"]
+
+
