@@ -137,3 +137,27 @@ def test_hacking_interval_linear_bounds():
     assert interval["min"] <= val <= interval["max"]
 
 
+def test_sklearn_params_and_score():
+    X, y = _make_data(n=50, d=4, seed=12)
+    rs = RashomonSet(estimator="logistic", random_state=0).fit(X, y)
+    params = rs.get_params()
+    assert params["estimator"] == "logistic" and "C" in params
+
+    # set_params round-trip
+    rs.set_params(C=2.0)
+    assert rs.C == 2.0
+
+    # score returns accuracy in [0,1]
+    acc = rs.score(X, y)
+    assert 0.0 <= acc <= 1.0
+
+    # linear R^2 sanity
+    rng = np.random.default_rng(13)
+    Xl = rng.normal(size=(60, 3))
+    w = np.array([1.0, -1.0, 0.5])
+    yl = Xl @ w + 0.05 * rng.normal(size=60)
+    rs_l = RashomonSet(estimator="linear", random_state=0).fit(Xl, yl)
+    r2 = rs_l.score(Xl, yl)
+    assert r2 > 0.8
+
+

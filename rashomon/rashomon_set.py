@@ -353,6 +353,50 @@ class RashomonSet:
             raise RuntimeError("Call fit() first.")
         return int(self._d)
 
+    # --------------------------- Sklearn-style utils ------------------------
+    def get_params(self, deep: bool = True) -> Dict[str, Any]:
+        return {
+            "estimator": self.estimator,
+            "reg": self.reg,
+            "C": self.C,
+            "epsilon": self.epsilon,
+            "epsilon_mode": self.epsilon_mode,
+            "sampler": self.sampler,
+            "measure": self.measure,
+            "random_state": self.random_state,
+            "max_iter": self.max_iter,
+            "tol": self.tol,
+            "safety_override": self.safety_override,
+            "bootstrap_fallback": getattr(self, "bootstrap_fallback", True),
+            "bootstrap_reps": getattr(self, "bootstrap_reps", 200),
+        }
+
+    def set_params(self, **params: Any) -> "RashomonSet":
+        for key, value in params.items():
+            if not hasattr(self, key):
+                raise ValueError(f"Unknown parameter: {key}")
+            setattr(self, key, value)
+        return self
+
+    def score(self, X: Array, y: Array) -> float:
+        """Sklearn-style score: accuracy (logistic) or R^2 (linear)."""
+        if not self._fitted:
+            raise RuntimeError("Call fit() first.")
+        X = np.asarray(X)
+        y = np.asarray(y)
+        if self.estimator == "logistic":
+            y_pred = self.predict(X)
+            # y may be float {0,1}; convert to int
+            return float(np.mean((y_pred == y.astype(int)).astype(float)))
+        # linear: R^2
+        y_pred = self.predict(X)
+        ss_res = float(np.sum((y - y_pred) ** 2))
+        y_mean = float(np.mean(y))
+        ss_tot = float(np.sum((y - y_mean) ** 2))
+        if ss_tot <= 0:
+            return 1.0 if ss_res <= 0 else 0.0
+        return 1.0 - ss_res / ss_tot
+
     # ------------------------------ Internals -------------------------------
     def _fit_linear_ridge(self, X: Array, y: Array, lam: float) -> Tuple[Array, float]:
         n, d = X.shape
