@@ -12,6 +12,19 @@ def _make_data(n: int = 40, d: int = 6, seed: int = 0):
     return X, y
 
 
+def test_lr_alpha_bootstrap_fallback_runs():
+    # Force penalized logistic (lambda>0) so Wilks preconditions are violated
+    X, y = _make_data(n=60, d=6, seed=11)
+    # Use epsilon_mode=LR_alpha with bootstrap_fallback enabled and few reps for speed
+    rs = RashomonSet(estimator="logistic", C=2.0, epsilon=0.2, epsilon_mode="LR_alpha", bootstrap_fallback=True, bootstrap_reps=50, random_state=0)
+    rs.fit(X, y)
+    diag = rs.diagnostics()
+    # epsilon should be set; implied_alpha reported
+    assert diag["epsilon"] is not None
+    assert diag["epsilon_mode"] == "LR_alpha"
+    assert 0 < diag["implied_alpha"] < 1
+
+
 def test_objective_and_contains():
     X, y = _make_data(n=50, d=5, seed=1)
     rs = RashomonSet(estimator="logistic", random_state=0).fit(X, y)

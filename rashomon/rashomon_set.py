@@ -55,6 +55,11 @@ class RashomonSet:
         Convergence tolerance for internal solvers and CG.
     safety_override : bool
         If True, do not hard-fail on conditioning/separation guardrails.
+    bootstrap_fallback : bool
+        If True, use parametric bootstrap calibration for LR_alpha when
+        Wilks' preconditions are violated (penalized/high-dim).
+    bootstrap_reps : int
+        Number of bootstrap replicates for LR_alpha fallback (default 200).
     """
 
     def __init__(
@@ -70,6 +75,8 @@ class RashomonSet:
         max_iter: int = 1000,
         tol: float = 1e-6,
         safety_override: bool = False,
+        bootstrap_fallback: bool = True,
+        bootstrap_reps: int = 200,
     ) -> None:
         self.estimator = estimator
         self.reg = reg
@@ -82,6 +89,8 @@ class RashomonSet:
         self.max_iter = int(max_iter)
         self.tol = float(tol)
         self.safety_override = bool(safety_override)
+        self.bootstrap_fallback = bool(bootstrap_fallback)
+        self.bootstrap_reps = int(bootstrap_reps)
 
         self._fitted = False
         self._n = 0
@@ -447,18 +456,22 @@ class RashomonSet:
         if mode == "LR_alpha":
             alpha = float(self.epsilon)
             precond_ok = (self._lambda is not None and self._lambda == 0.0)
-            # Penalized LR violates Wilks; warn and fallback unless override
+            # Penalized LR violates Wilks; bootstrap fallback if enabled
             if not _HAS_SCIPY:
                 warnings.warn("scipy not available; falling back to percent_loss calibration")
-                return 0.05 * float(self._L_hat), None
-            if not precond_ok and not self.safety_override:
-                warnings.warn("Wilks preconditions violated (penalized/high-dim). Falling back to percent_loss.")
                 return 0.05 * float(self._L_hat), None
             if not (0.0 < alpha < 1.0):
                 warnings.warn("LR_alpha expects alpha in (0,1); clipping")
                 alpha = float(np.clip(alpha, 1e-12, 1 - 1e-12))
-            eps = 0.5 * chi2.ppf(1.0 - alpha, df=self._d) / self._n
-            return float(eps), alpha
+            if precond_ok or self.safety_override:
+                eps = 0.5 * chi2.ppf(1.0 - alpha, df=self._d) / self._n
+                return float(eps), alpha
+            # Bootstrap fallback path
+            if self.bootstrap_fallback:
+                epsb = self._bootstrap_lr_alpha(alpha)
+                return float(epsb), alpha
+            warnings.warn("Wilks preconditions violated (penalized/high-dim). Falling back to percent_loss.")
+            return 0.05 * float(self._L_hat), None
         if mode == "LR_alpha_highdim":
             warnings.warn("LR_alpha_highdim not yet implemented; using percent_loss fallback.")
             return 0.05 * float(self._L_hat), None
@@ -502,6 +515,44 @@ class RashomonSet:
         z = self._cg_solve(s, tol=self.tol, max_iter=self.max_iter)
         val = float(np.sqrt(max(s @ z, 0.0)))
         return val
+
+    # --------------------- Bootstrap LR_alpha fallback (B9b) ----------------
+    def _bootstrap_lr_alpha(self, alpha: float) -> float:
+        """Parametric bootstrap calibration for LR_alpha.
+
+        Approximates the (1-α) quantile of 2n [L_b(θ̂) - L_b(θ̂_b)] over
+        bootstrap resamples y_b ~ Bernoulli(σ(X θ̂)) and returns ε = q/(2n).
+
+        Notes
+        -----
+        - Only implemented for logistic models.
+        - Uses the same λ as the fitted model.
+        - Deterministic given random_state.
+        """
+        if self.estimator != "logistic":
+            warnings.warn("Bootstrap LR_alpha implemented for logistic only; using percent_loss fallback")
+            return 0.05 * float(self._L_hat)  # type: ignore[arg-type]
+        if self._X is None or self._theta_hat is None or self._lambda is None or self._n is None:
+            raise RuntimeError("Model not fully initialized for bootstrap")
+        X = self._X
+        n = self._n
+        lam = self._lambda
+        theta_hat = self._theta_hat
+        z = X @ theta_hat
+        p = _sigmoid(z)
+        rng = np.random.default_rng(self._seed if self._seed is not None else 123456789)
+        reps = max(int(self.bootstrap_reps), 10)
+        lr_vals = np.empty(reps, dtype=float)
+        for b in range(reps):
+            y_b = (rng.random(n) < p).astype(float)
+            theta_b, L_hat_b, _w = self._fit_logistic_l2(X, y_b, lam)
+            L_b_at_hat = self._logistic_loss(X, y_b, theta_hat, lam)
+            lr_b = 2.0 * n * max(L_b_at_hat - L_hat_b, 0.0)
+            lr_vals[b] = lr_b
+        # empirical quantile
+        q = float(np.quantile(lr_vals, 1.0 - alpha))
+        eps = q / (2.0 * n)
+        return float(eps)
 
     # ------------------------------ Placeholders ----------------------------
     def variable_importance(self, mode: str = "VIC") -> Any:
