@@ -161,3 +161,23 @@ def test_sklearn_params_and_score():
     assert r2 > 0.8
 
 
+def test_coef_intervals_and_sampler_membership():
+    X, y = _make_data(n=50, d=5, seed=15)
+    rs = RashomonSet(estimator="logistic", random_state=0, epsilon=0.05, epsilon_mode="percent_loss").fit(X, y)
+
+    ivals = rs.coef_intervals()
+    assert ivals.shape == (rs.n_features_in_, 2)
+    # theta_hat coordinates lie within intervals for e_j dot theta_hat
+    for j in range(rs.n_features_in_):
+        val = rs.coef_[j]
+        assert ivals[j, 0] <= val <= ivals[j, 1]
+
+    # Sampling yields parameters inside the H-ellipsoid: (θ-θ̂)^T H (θ-θ̂) ≤ 2ε
+    samp = rs.sample_ellipsoid(n_samples=20)
+    H = rs._hessian_matrix()
+    dtheta = samp - rs.coef_
+    qvals = np.einsum('ni,ij,nj->n', dtheta, H, dtheta)
+    eps = rs.diagnostics()["epsilon"]
+    assert np.all(qvals <= 2.0 * float(eps) + 1e-8)
+
+

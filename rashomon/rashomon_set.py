@@ -340,6 +340,98 @@ class RashomonSet:
             out[i, 1] = pmax
         return out
 
+    # ---------------------- VIC-style coefficient intervals -----------------
+    def coef_intervals(self, indices: Optional[Array] = None) -> Array:
+        """Coefficient-wise intervals under the ellipsoid certificate.
+
+        For each selected coordinate j, returns [min_j, max_j] where
+        min_j,max_j are the hacking interval for s=e_j.
+
+        Parameters
+        ----------
+        indices : Optional[array-like]
+            Indices of coefficients to compute. If None, compute all.
+
+        Returns
+        -------
+        np.ndarray of shape (m, 2)
+            Interval bounds for selected m coordinates in the order given.
+        """
+        if not self._fitted:
+            raise RuntimeError("Call fit() first.")
+        d = self._d
+        if indices is None:
+            idx = np.arange(d)
+        else:
+            idx = np.asarray(indices, dtype=int)
+            if idx.ndim != 1:
+                raise ValueError("indices must be 1D")
+            if np.any((idx < 0) | (idx >= d)):
+                raise ValueError("indices out of range")
+        out = np.empty((idx.shape[0], 2), dtype=float)
+        for k, j in enumerate(idx):
+            e = np.zeros(d, dtype=float)
+            e[j] = 1.0
+            iv = self.hacking_interval(e)
+            out[k, 0] = iv["min"]
+            out[k, 1] = iv["max"]
+        return out
+
+    # -------------------------- Ellipsoid sampler ---------------------------
+    def _hessian_matrix(self) -> Array:
+        if self._X is None or self._lambda is None:
+            raise RuntimeError("Fit before requesting Hessian")
+        X = self._X
+        n = self._n
+        lam = self._lambda
+        if self.estimator == "logistic":
+            if self._w_diag is None:
+                raise RuntimeError("Weights unavailable")
+            Xw = X * np.sqrt(self._w_diag)[:, None]
+            H = (Xw.T @ Xw) / n + lam * np.eye(self._d)
+        else:
+            H = (X.T @ X) / n + lam * np.eye(self._d)
+        return H.astype(float, copy=False)
+
+    def sample_ellipsoid(self, n_samples: int = 100) -> Array:
+        """Sample uniformly from the ellipsoid (θ-θ̂)^T H (θ-θ̂) ≤ 2ε.
+
+        Uses Cholesky factorization H=L L^T and maps a uniform point in the
+        L2 unit ball via θ = θ̂ + L^{-1} (sqrt(2ε) r u), with u unit vector,
+        r ~ U(0,1)^{1/d} for uniform-in-ball radius.
+        """
+        if not self._fitted:
+            raise RuntimeError("Call fit() first.")
+        if self._theta_hat is None or self._epsilon_value is None:
+            raise RuntimeError("Model not fully initialized.")
+        d = self._d
+        if n_samples <= 0:
+            raise ValueError("n_samples must be positive")
+        H = self._hessian_matrix()
+        # Ensure positive definiteness (lam>0 already helps). Add tiny jitter if needed.
+        jitter = 0.0
+        for _ in range(3):
+            try:
+                L = np.linalg.cholesky(H + jitter * np.eye(d))
+                break
+            except np.linalg.LinAlgError:
+                jitter = 1e-10 if jitter == 0.0 else jitter * 10.0
+        else:
+            raise RuntimeError("Hessian not SPD even with jitter")
+        rng = np.random.default_rng(self._seed)
+        samples = np.empty((n_samples, d), dtype=float)
+        scale = float(np.sqrt(2.0 * self._epsilon_value))
+        for i in range(n_samples):
+            g = rng.normal(size=d)
+            norm = float(np.linalg.norm(g))
+            u = g / (norm + 1e-18)
+            r = float(rng.random()) ** (1.0 / d)
+            y = scale * r * u
+            # Solve L z = y → z = L^{-1} y
+            z = np.linalg.solve(L, y)
+            samples[i] = self._theta_hat + z
+        return samples
+
     # --------------------------- Sklearn-style attrs -----------------------
     @property
     def coef_(self) -> Array:
