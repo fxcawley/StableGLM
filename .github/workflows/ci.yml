@@ -43,7 +43,11 @@ jobs:
 
       - name: Run tests
         run: |
-          python -m pytest -q
+          python -c "import numpy as np, os; import numpy as _np; from numpy import __config__ as _nc; print('BLAS_INFO=', getattr(_nc, 'blas_opt_info', {}))"
+          python -m pytest -q --cov=rashomon --cov-report=xml
+        env:
+          OMP_NUM_THREADS: 1
+          MKL_NUM_THREADS: 1
 
   docs:
     name: Docs build
