@@ -1,0 +1,69 @@
+{
+  "logistic": {
+    "diagnostics": {
+      "n": 64,
+      "d": 6,
+      "L_hat": 2.3084490222877845,
+      "theta_norm_2": 1.947360786511689,
+      "epsilon": 0.04616898044575569,
+      "epsilon_mode": "percent_loss",
+      "implied_alpha": null,
+      "measure": "lr",
+      "seed": 0,
+      "blas_vendor": "Windows",
+      "kappa_H_est": 1.194631791571134,
+      "min_w_diag": 0.00194613182179788,
+      "min_signed_margin": -2.160449206655873,
+      "set_fidelity": null,
+      "ess_per_min": null
+    },
+    "bands_first5": [
+      [
+        0.3833996647089997,
+        0.5157606842087178
+      ],
+      [
+        0.26821070261687086,
+        0.5582465027486742
+      ],
+      [
+        0.9836770486441269,
+        0.9967936507380665
+      ],
+      [
+        0.07551518026259002,
+        0.1975264660550173
+      ],
+      [
+        0.486469465681169,
+        0.694823737975304
+      ]
+    ],
+    "coef_norm": 1.947360786511689
+  },
+  "linear": {
+    "diagnostics": {
+      "n": 64,
+      "d": 6,
+      "L_hat": 1.0082527197073063,
+      "theta_norm_2": 1.4176727841454908,
+      "epsilon": 0.020165054394146127,
+      "epsilon_mode": "percent_loss",
+      "implied_alpha": null,
+      "measure": "lr",
+      "seed": 0,
+      "blas_vendor": "Windows",
+      "kappa_H_est": 1.6781253536154193,
+      "min_w_diag": 1.0,
+      "min_signed_margin": -0.17741427088185277,
+      "set_fidelity": null,
+      "ess_per_min": null
+    },
+    "hacking_interval_random_s": {
+      "min": -1.4453670456381744,
+      "max": -0.7975133926833748
+    },
+    "coef_norm": 1.4176727841454908,
+    "r2_on_train": 0.9963931012184921
+  }
+}
