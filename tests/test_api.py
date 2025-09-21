@@ -181,3 +181,28 @@ def test_coef_intervals_and_sampler_membership():
     assert np.all(qvals <= 2.0 * float(eps) + 1e-8)
 
 
+def test_model_class_reliance_detects_informative_features():
+    rng = np.random.default_rng(21)
+    n, d = 80, 6
+
+    # Linear: feature 0 strong signal
+    Xl = rng.normal(size=(n, d))
+    ylin = 3.0 * Xl[:, 0] + 0.1 * rng.normal(size=n)
+    rs_l = RashomonSet(estimator="linear", random_state=0).fit(Xl, ylin)
+    mcr_l = rs_l.model_class_reliance(Xl, ylin, n_permutations=8, random_state=0)
+    imp_l = mcr_l["feature_importance"]
+    assert imp_l[0] == np.max(imp_l)
+
+    # Logistic: feature 1 strong signal
+    Xg = rng.normal(size=(n, d))
+    w = np.zeros(d)
+    w[1] = 4.0
+    logits = Xg @ w
+    p = 1.0 / (1.0 + np.exp(-logits))
+    ybin = (rng.random(n) < p).astype(float)
+    rs_g = RashomonSet(estimator="logistic", random_state=0).fit(Xg, ybin)
+    mcr_g = rs_g.model_class_reliance(Xg, ybin, n_permutations=8, random_state=0)
+    imp_g = mcr_g["feature_importance"]
+    assert imp_g[1] == np.max(imp_g)
+
+

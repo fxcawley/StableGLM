@@ -694,8 +694,33 @@ class RashomonSet:
     def variable_importance(self, mode: str = "VIC") -> Any:
         raise NotImplementedError
 
-    def model_class_reliance(self, mode: str = "perm") -> Any:
-        raise NotImplementedError
+    def model_class_reliance(self, X: Array, y: Array, n_permutations: int = 16, random_state: Optional[int] = None) -> Dict[str, Array]:
+        """Permutation-based model class reliance (MCR).
+
+        For each feature j, compute the change in score when column j is
+        permuted across samples, averaged over n_permutations. Returns a
+        dictionary with arrays per family: accuracy drop (logistic) or R^2 drop (linear).
+
+        This is a simple baseline to identify informative features and does not
+        account for correlation structures.
+        """
+        if not self._fitted:
+            raise RuntimeError("Call fit() first.")
+        X = np.asarray(X)
+        y = np.asarray(y)
+        if X.ndim != 2 or X.shape[1] != self._d:
+            raise ValueError("X must be 2D with d features")
+        base = self.score(X, y)
+        rng = np.random.default_rng(self._seed if random_state is None else int(random_state))
+        drops = np.zeros(self._d, dtype=float)
+        for j in range(self._d):
+            vals = np.zeros(n_permutations, dtype=float)
+            for b in range(n_permutations):
+                Xp = X.copy()
+                rng.shuffle(Xp[:, j])
+                vals[b] = base - self.score(Xp, y)
+            drops[j] = float(np.mean(vals))
+        return {"feature_importance": drops}
 
     def multiplicity(self, which: Any = ("ambiguity", "discrepancy")) -> Any:
         raise NotImplementedError
