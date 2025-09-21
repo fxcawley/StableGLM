@@ -35,3 +35,33 @@ Issues = "https://github.com/fxcawley/StableGLM/issues"
 
 [tool.hatch.build]
 packages = ["rashomon"]
+
+[tool.black]
+line-length = 100
+target-version = ["py39", "py310", "py311", "py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+select = [
+  "E", "F", "I", "UP", "B", "PIE", "Q", "W"
+]
+ignore = []
+src = ["rashomon", "tests", "scripts"]
+
+[tool.ruff.isort]
+known-first-party = ["rashomon"]
+
+[tool.mypy]
+python_version = "3.9"
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+strict_optional = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+ignore_missing_imports = true
+pretty = true
+show_error_codes = true

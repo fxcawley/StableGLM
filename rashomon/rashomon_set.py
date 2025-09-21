@@ -600,8 +600,8 @@ class RashomonSet:
                 warnings.warn("LR_alpha expects alpha in (0,1); clipping")
                 alpha = float(np.clip(alpha, 1e-12, 1 - 1e-12))
             if precond_ok or self.safety_override:
-                eps = 0.5 * chi2.ppf(1.0 - alpha, df=self._d) / self._n
-                return float(eps), alpha
+            eps = 0.5 * chi2.ppf(1.0 - alpha, df=self._d) / self._n
+            return float(eps), alpha
             # Bootstrap fallback path
             if self.bootstrap_fallback:
                 epsb = self._bootstrap_lr_alpha(alpha)

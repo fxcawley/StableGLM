@@ -1,0 +1,238 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Reproducibility &mdash; StableGLM  documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=5929fcd5"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="prev" title="Project Plan" href="project_plan.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            StableGLM
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="guide/quickstart.html">Quickstart</a></li>
+<li class="toctree-l1"><a class="reference internal" href="guide/overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/reference.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="project_plan.html">Project Plan</a></li>
+<li class="toctree-l1"><a class="reference internal" href="project_plan.html#stableglm-project-plan">StableGLM Project Plan</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Reproducibility</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#reproducibility-guide">Reproducibility Guide</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#environment">Environment</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#seeding-determinism">Seeding &amp; Determinism</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#running-examples-placeholder">Running examples (placeholder)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#evaluation-protocol">Evaluation protocol</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#artifact-policy">Artifact policy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#git-integration">Git integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#ci-hooks">CI hooks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#contact">Contact</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">StableGLM</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Reproducibility</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/reproducibility.md.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section class="tex2jax_ignore mathjax_ignore" id="reproducibility">
+<h1>Reproducibility<a class="headerlink" href="#reproducibility" title="Link to this heading"></a></h1>
+<p>The canonical reproducibility instructions live in <code class="docutils literal notranslate"><span class="pre">REPRODUCIBILITY.md</span></code> at the repository root.</p>
+</section>
+<section class="tex2jax_ignore mathjax_ignore" id="reproducibility-guide">
+<h1>Reproducibility Guide<a class="headerlink" href="#reproducibility-guide" title="Link to this heading"></a></h1>
+<p>This document specifies the environment, seeding, commands, and artifact policy to reproduce results and figures for StableGLM.</p>
+<section id="environment">
+<h2>Environment<a class="headerlink" href="#environment" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>Python: 3.9–3.12 (tested)</p></li>
+<li><p>OS: Linux/macOS/Windows (CI matrix)</p></li>
+<li><p>BLAS: OpenBLAS and MKL tested; BLAS vendor logged in diagnostics</p></li>
+<li><p>Core deps (minimal):</p>
+<ul>
+<li><p>numpy, scipy, scikit-learn</p></li>
+<li><p>matplotlib, seaborn</p></li>
+<li><p>tqdm</p></li>
+<li><p>Optional (CPU only): torch (for HVP/Lanczos conveniences)</p></li>
+<li><p>docs: sphinx, myst-parser</p></li>
+<li><p>testing: pytest, pytest-cov</p></li>
+</ul>
+</li>
+</ul>
+<p>We will publish an <code class="docutils literal notranslate"><span class="pre">environment.yml</span></code> and <code class="docutils literal notranslate"><span class="pre">requirements.txt</span></code> upon first release. For now, a minimal dev install:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>.venv
+<span class="nb">source</span><span class="w"> </span>.venv/bin/activate<span class="w">  </span><span class="c1"># Windows: .venv\Scripts\activate</span>
+pip<span class="w"> </span>install<span class="w"> </span>-U<span class="w"> </span>pip
+pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>requirements-dev.txt<span class="w">  </span><span class="c1"># provided later</span>
+</pre></div>
+</div>
+</section>
+<section id="seeding-determinism">
+<h2>Seeding &amp; Determinism<a class="headerlink" href="#seeding-determinism" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>Global seed is set via <code class="docutils literal notranslate"><span class="pre">random_state</span></code> parameter on <code class="docutils literal notranslate"><span class="pre">RashomonSet</span></code> and propagated to numpy/torch RNGs.</p></li>
+<li><p>We log: seed, numpy version, scipy version, sklearn version, torch version (if used), and BLAS vendor in <code class="docutils literal notranslate"><span class="pre">rs.diagnostics()</span></code>.</p></li>
+<li><p>Tests assert numerical tolerance across BLAS (not bitwise equality).</p></li>
+</ul>
+<p>Example:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">rashomon</span> <span class="kn">import</span> <span class="n">RashomonSet</span>
+<span class="n">rs</span> <span class="o">=</span> <span class="n">RashomonSet</span><span class="p">(</span><span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
+<span class="n">diag</span> <span class="o">=</span> <span class="n">rs</span><span class="o">.</span><span class="n">diagnostics</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">diag</span><span class="p">[</span><span class="s2">&quot;seed&quot;</span><span class="p">],</span> <span class="n">diag</span><span class="p">[</span><span class="s2">&quot;blas_vendor&quot;</span><span class="p">])</span>  <span class="c1"># example fields</span>
+</pre></div>
+</div>
+</section>
+<section id="running-examples-placeholder">
+<h2>Running examples (placeholder)<a class="headerlink" href="#running-examples-placeholder" title="Link to this heading"></a></h2>
+<p>Until the package is published, examples will live under <code class="docutils literal notranslate"><span class="pre">examples/</span></code>.</p>
+<ul class="simple">
+<li><p>Ellipsoid certificates on a toy dataset:</p></li>
+</ul>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>examples/ellipsoid_demo.py<span class="w"> </span>--epsilon<span class="w"> </span><span class="m">0</span>.02<span class="w"> </span>--epsilon-mode<span class="w"> </span>percent_loss<span class="w"> </span>--measure<span class="w"> </span>lr<span class="w"> </span>--seed<span class="w"> </span><span class="m">0</span>
+</pre></div>
+</div>
+<ul class="simple">
+<li><p>Hit-and-Run sampling diagnostics:</p></li>
+</ul>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>examples/sampler_diag.py<span class="w"> </span>--epsilon<span class="w"> </span><span class="m">0</span>.02<span class="w"> </span>--steps<span class="w"> </span><span class="m">2000</span><span class="w"> </span>--burnin<span class="w"> </span><span class="m">200</span><span class="w"> </span>--thin<span class="w"> </span><span class="m">5</span><span class="w"> </span>--seed<span class="w"> </span><span class="m">0</span>
+</pre></div>
+</div>
+<ul class="simple">
+<li><p>Metrics demo (VIC/MCR/Ambiguity):</p></li>
+</ul>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>examples/metrics_demo.py<span class="w"> </span>--epsilon<span class="w"> </span><span class="m">0</span>.02<span class="w"> </span>--threshold<span class="w"> </span>fixed<span class="w"> </span>--perm<span class="w"> </span>iid<span class="w"> </span>--seed<span class="w"> </span><span class="m">0</span>
+</pre></div>
+</div>
+<p>We will wire these into CI smoke tests to ensure they run &lt; 3 minutes CPU.</p>
+</section>
+<section id="evaluation-protocol">
+<h2>Evaluation protocol<a class="headerlink" href="#evaluation-protocol" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>Tightness study: compare analytic bounds with empirical extrema over an ε-grid; record gap statistics and wall clock.</p></li>
+<li><p>Scaling study: n ∈ {1e3, 1e4, 1e5}, d ∈ {10, 100, 1000}; report HVP time, CG iters, ESS/min.</p></li>
+<li><p>Fairness metrics: report threshold regimes (T1 fixed, T2 match_prevalence or match_fpr, T3 cost_opt). By default, report T1 &amp; T2.</p></li>
+</ul>
+<p>All evaluation scripts accept <code class="docutils literal notranslate"><span class="pre">--seed</span></code>, <code class="docutils literal notranslate"><span class="pre">--n-rep</span></code>, and write JSON/CSV artifacts.</p>
+</section>
+<section id="artifact-policy">
+<h2>Artifact policy<a class="headerlink" href="#artifact-policy" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>Do not commit large raw data; use <code class="docutils literal notranslate"><span class="pre">data/</span></code> (gitignored). Provide scripts to download/preprocess public datasets.</p></li>
+<li><p>Commit configuration files and small JSON summaries under <code class="docutils literal notranslate"><span class="pre">artifacts/</span></code> (limit &lt; 5 MB per file).</p></li>
+<li><p>Figures are regenerated; do not store large PNGs unless necessary. For paper figures, store vector-friendly versions (SVG/PDF) if small.</p></li>
+<li><p>Every experiment run writes a <code class="docutils literal notranslate"><span class="pre">run.json</span></code> with: seed, software versions, BLAS vendor, commit hash, start/end time, and key diagnostics (κ(H), ESS/min, set-fidelity).</p></li>
+</ul>
+</section>
+<section id="git-integration">
+<h2>Git integration<a class="headerlink" href="#git-integration" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>Initialize git in the project root, commit docs, and configure a remote (e.g., GitHub). CI will pick up environment checks and smoke examples.</p></li>
+</ul>
+<p>Commands:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># one-time setup</span>
+git<span class="w"> </span>init
+git<span class="w"> </span>add<span class="w"> </span>.
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;chore: init reproducibility docs and project plan&quot;</span>
+<span class="c1"># add remote (replace URL)</span>
+git<span class="w"> </span>remote<span class="w"> </span>add<span class="w"> </span>origin<span class="w"> </span>https://github.com/ORG/StableGLM.git
+git<span class="w"> </span>branch<span class="w"> </span>-M<span class="w"> </span>main
+git<span class="w"> </span>push<span class="w"> </span>-u<span class="w"> </span>origin<span class="w"> </span>main
+</pre></div>
+</div>
+</section>
+<section id="ci-hooks">
+<h2>CI hooks<a class="headerlink" href="#ci-hooks" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>Matrix on py3.9–3.12 and OpenBLAS/MKL runners.</p></li>
+<li><p>Jobs: unit tests, smoke examples (&lt;3 min), docs build, wheel build.</p></li>
+<li><p>Artifacts: upload coverage.xml, example JSON summaries.</p></li>
+</ul>
+</section>
+<section id="contact">
+<h2>Contact<a class="headerlink" href="#contact" title="Link to this heading"></a></h2>
+<p>Please open an issue with the label <code class="docutils literal notranslate"><span class="pre">[repro]</span></code> for any reproducibility gap.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="project_plan.html" class="btn btn-neutral float-left" title="Project Plan" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, StableGLM Team.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
