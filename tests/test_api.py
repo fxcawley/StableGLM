@@ -218,6 +218,12 @@ def test_coef_intervals_and_sampler_membership():
     eps = rs.diagnostics()["epsilon"]
     assert np.all(qvals <= 2.0 * float(eps) + 1e-8)
 
+    # Hit-and-Run sampler basic smoke
+    rs_whitened = RashomonSet(estimator="logistic", random_state=0, epsilon=0.05, epsilon_mode="percent_loss", sampler="hitandrun").fit(X, y)
+    chain = rs_whitened.sample(n_samples=25, burnin=10, thin=2, random_state=123)
+    assert chain.shape == (25, rs_whitened.n_features_in_)
+    assert np.all(rs_whitened.contains_many(chain))
+
 
 def test_model_class_reliance_detects_informative_features():
     rng = np.random.default_rng(21)

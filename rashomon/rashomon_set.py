@@ -525,7 +525,19 @@ class RashomonSet:
             H = (X.T @ X) / n + lam * np.eye(self._d)
         return H.astype(float, copy=False)
 
-    def sample_ellipsoid(self, n_samples: int = 100) -> Array:
+    def sample(self, n_samples: int = 100, **kwargs: Any) -> Array:
+        """Sample parameters using the configured sampler backend."""
+
+        backend = self.sampler.lower()
+        if backend == "ellipsoid":
+            if kwargs:
+                return self.sample_ellipsoid(n_samples=n_samples, **kwargs)
+            return self.sample_ellipsoid(n_samples=n_samples)
+        if backend == "hitandrun":
+            return self.sample_hitandrun(n_samples=n_samples, **kwargs)
+        raise ValueError("Unknown sampler. Use 'ellipsoid' or 'hitandrun'.")
+
+    def sample_ellipsoid(self, n_samples: int = 100, random_state: Optional[int] = None) -> Array:
         """Sample uniformly from the ellipsoid (θ-θ̂)^T H (θ-θ̂) ≤ 2ε.
 
         Uses Cholesky factorization H=L L^T and maps a uniform point in the
@@ -550,7 +562,8 @@ class RashomonSet:
                 jitter = 1e-10 if jitter == 0.0 else jitter * 10.0
         else:
             raise RuntimeError("Hessian not SPD even with jitter")
-        rng = np.random.default_rng(self._seed)
+        seed = self._seed if random_state is None else int(random_state)
+        rng = np.random.default_rng(seed)
         samples = np.empty((n_samples, d), dtype=float)
         scale = float(np.sqrt(2.0 * self._epsilon_value))
         for i in range(n_samples):
@@ -562,6 +575,141 @@ class RashomonSet:
             # Solve L z = y → z = L^{-1} y
             z = np.linalg.solve(L, y)
             samples[i] = self._theta_hat + z
+        return samples
+
+    def sample_hitandrun(
+        self,
+        n_samples: int = 100,
+        *,
+        burnin: int = 200,
+        thin: int = 1,
+        directions: Optional[str] = None,
+        t_init: float = 1.0,
+        growth: float = 2.0,
+        max_bracket: float = 1e6,
+        max_bisect: int = 50,
+        tol: float = 1e-10,
+        random_state: Optional[int] = None,
+    ) -> Array:
+        """Hit-and-Run sampling using bracketed line search with safeguards."""
+
+        if not self._fitted or self._theta_hat is None:
+            raise RuntimeError("Call fit() first.")
+        if self._oracle is None or self._X is None or self._y is None or self._epsilon_value is None:
+            raise RuntimeError("Model not fully initialized.")
+        if n_samples <= 0:
+            raise ValueError("n_samples must be positive")
+        if burnin < 0:
+            raise ValueError("burnin must be non-negative")
+        if thin <= 0:
+            raise ValueError("thin must be positive")
+        if t_init <= 0.0:
+            raise ValueError("t_init must be positive")
+        if growth <= 1.0:
+            raise ValueError("growth must be > 1.0")
+        if max_bracket <= 0.0:
+            raise ValueError("max_bracket must be positive")
+
+        dir_mode = ("whitened" if self.measure == "lr" else "euclidean") if directions is None else directions.lower()
+        if dir_mode not in {"whitened", "euclidean"}:
+            raise ValueError("directions must be 'whitened' or 'euclidean'")
+
+        oracle = self._oracle
+        eps = float(self._epsilon_value)
+        theta = self._theta_hat.copy()
+        z = self._X @ theta
+        seed = self._seed if random_state is None else int(random_state)
+        rng = np.random.default_rng(seed)
+
+        total_steps = burnin + n_samples * max(1, thin)
+        max_steps = max(total_steps * 20, total_steps + 1)
+        samples = np.empty((n_samples, self._d), dtype=float)
+        saved = 0
+        step = 0
+        line_tol = float(tol)
+        max_growth_steps = 64
+
+        def make_delta(direction: Array, direction_proj: Array):
+            def _delta(t: float) -> float:
+                theta_t = theta + t * direction
+                z_t = z + t * direction_proj
+                return float(oracle.loss_gap(theta_t, x_theta=z_t) - eps)
+
+            return _delta
+
+        def bracket_limit(direction: Array, direction_proj: Array) -> Optional[float]:
+            delta_fn = make_delta(direction, direction_proj)
+            delta_inside = delta_fn(0.0)
+            t = float(t_init)
+            delta_outside = delta_fn(t)
+            growth_steps = 0
+            while delta_outside <= line_tol and abs(t) < max_bracket and growth_steps < max_growth_steps:
+                t *= growth
+                delta_outside = delta_fn(t)
+                growth_steps += 1
+            if delta_outside <= line_tol:
+                return None
+            inside_val = 0.0
+            outside_val = t
+            f_inside = delta_inside
+            f_outside = delta_outside
+            for _ in range(max_bisect):
+                if abs(f_outside - f_inside) > 1e-18:
+                    cand = outside_val - f_outside * (outside_val - inside_val) / (f_outside - f_inside)
+                else:
+                    cand = 0.5 * (outside_val + inside_val)
+                if not np.isfinite(cand):
+                    cand = 0.5 * (outside_val + inside_val)
+                low, high = (inside_val, outside_val) if inside_val < outside_val else (outside_val, inside_val)
+                if not (low < cand < high):
+                    cand = 0.5 * (outside_val + inside_val)
+                delta_cand = delta_fn(cand)
+                if delta_cand > 0.0:
+                    outside_val = cand
+                    f_outside = delta_cand
+                else:
+                    inside_val = cand
+                    f_inside = delta_cand
+                if abs(outside_val - inside_val) <= max(line_tol, 1e-12 * max(1.0, abs(inside_val))):
+                    break
+            return inside_val
+
+        while saved < n_samples:
+            if step >= max_steps:
+                raise RuntimeError("Hit-and-Run did not produce enough samples within step cap")
+            step += 1
+
+            g = rng.normal(size=self._d)
+            if dir_mode == "whitened":
+                v = self._cg_solve(g, tol=self.tol, max_iter=self.max_iter)
+            else:
+                v = g
+            norm_v = float(np.linalg.norm(v))
+            if norm_v < 1e-12:
+                continue
+            v = v / norm_v
+            xv = self._X @ v
+
+            limit_pos = bracket_limit(v, xv)
+            if limit_pos is None or limit_pos <= 0.0:
+                continue
+            limit_neg_pos = bracket_limit(-v, -xv)
+            if limit_neg_pos is None or limit_neg_pos <= 0.0:
+                continue
+            t_plus = limit_pos
+            t_minus = -limit_neg_pos
+
+            if not np.isfinite(t_plus) or not np.isfinite(t_minus) or t_plus <= t_minus:
+                continue
+
+            t = float(rng.uniform(t_minus, t_plus))
+            theta = theta + t * v
+            z = z + t * xv
+
+            if step > burnin and ((step - burnin) % max(1, thin) == 0):
+                samples[saved] = theta
+                saved += 1
+
         return samples
 
     # --------------------------- Sklearn-style attrs -----------------------
