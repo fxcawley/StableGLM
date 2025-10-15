@@ -123,6 +123,44 @@ def test_vectorized_membership_matches_scalar():
     assert np.array_equal(mask_many, mask_scalar)
 
 
+def test_membership_with_precomputed_margins():
+    X, y = _make_data(n=30, d=4, seed=9)
+    rs = RashomonSet(estimator="logistic", random_state=0).fit(X, y)
+
+    theta_hat = rs.coef_
+    margins_hat = X @ theta_hat
+
+    # objective / loss gap agree when margins are precomputed
+    obj_direct = rs.objective(theta_hat)
+    obj_cached = rs.objective(theta_hat, x_theta=margins_hat)
+    assert np.allclose(obj_direct, obj_cached, atol=1e-12)
+
+    gap_direct = rs.loss_gap(theta_hat)
+    gap_cached = rs.loss_gap(theta_hat, x_theta=margins_hat)
+    assert np.allclose(gap_direct, gap_cached, atol=1e-12)
+
+    assert rs.contains(theta_hat, x_theta=margins_hat)
+
+    Theta = np.vstack([theta_hat, theta_hat + 0.05 * np.ones_like(theta_hat)])
+    margins = X @ Theta.T  # shape (n, k)
+
+    obj_many = rs.objective_many(Theta)
+    obj_many_cached = rs.objective_many(Theta, XTheta=margins)
+    assert np.allclose(obj_many, obj_many_cached, atol=1e-12)
+
+    gaps_many = rs.loss_gap_many(Theta)
+    gaps_many_cached = rs.loss_gap_many(Theta, XTheta=margins)
+    assert np.allclose(gaps_many, gaps_many_cached, atol=1e-12)
+
+    # Also accept transposed margins (k, n)
+    margins_transposed = margins.T
+    mask = rs.contains_many(Theta)
+    mask_cached = rs.contains_many(Theta, XTheta=margins)
+    mask_transposed = rs.contains_many(Theta, XTheta=margins_transposed)
+    assert np.array_equal(mask, mask_cached)
+    assert np.array_equal(mask, mask_transposed)
+
+
 def test_hacking_interval_linear_bounds():
     # For linear model, hacking_interval on s should bound s^T theta
     rng = np.random.default_rng(10)

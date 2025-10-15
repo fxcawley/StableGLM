@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 import os
 import platform
 import warnings
@@ -25,6 +25,144 @@ Array = np.ndarray
 
 def _sigmoid(z: Array) -> Array:
     return 1.0 / (1.0 + np.exp(-z))
+
+
+class _MembershipOracle:
+    """Vectorized penalized objective and membership checks.
+
+    Parameters are shared with the fitted :class:`RashomonSet` instance and the
+    oracle exposes helpers that optionally accept pre-computed ``X @ theta``
+    values to avoid repeated matrix multiplications (critical for Hit-and-Run
+    style sampling in D14).
+    """
+
+    __slots__ = (
+        "_estimator",
+        "_X",
+        "_y",
+        "_lam",
+        "_L_hat",
+        "_epsilon",
+        "_tol",
+        "_n",
+        "_d",
+    )
+
+    def __init__(
+        self,
+        *,
+        estimator: str,
+        X: Array,
+        y: Array,
+        lam: float,
+        L_hat: float,
+        epsilon: float,
+        tol: float,
+    ) -> None:
+        self._estimator = estimator
+        self._X = X
+        self._y = y
+        self._lam = float(lam)
+        self._L_hat = float(L_hat)
+        self._epsilon = float(epsilon)
+        self._tol = float(tol)
+        self._n = X.shape[0]
+        self._d = X.shape[1]
+
+    # ------------------------------------------------------------------ utils
+    def with_tolerance(self, tol: float) -> "_MembershipOracle":
+        """Return a cloned oracle with a different membership tolerance."""
+
+        return _MembershipOracle(
+            estimator=self._estimator,
+            X=self._X,
+            y=self._y,
+            lam=self._lam,
+            L_hat=self._L_hat,
+            epsilon=self._epsilon,
+            tol=tol,
+        )
+
+    def _validate_theta(self, theta: Array) -> Array:
+        arr = np.asarray(theta, dtype=float)
+        if arr.ndim != 1 or arr.shape[0] != self._d:
+            raise ValueError("theta must be a 1D vector of length d")
+        return arr
+
+    def _validate_thetas(self, Theta: Array) -> Array:
+        arr = np.asarray(Theta, dtype=float)
+        if arr.ndim == 1:
+            arr = arr[None, :]
+        if arr.ndim != 2 or arr.shape[1] != self._d:
+            raise ValueError("Theta must have shape (k, d)")
+        return arr
+
+    def _resolve_scores_single(self, theta: Array, x_theta: Optional[Array]) -> Array:
+        if x_theta is None:
+            return (self._X @ theta).astype(float, copy=False)
+        scores = np.asarray(x_theta, dtype=float)
+        if scores.ndim == 2:
+            scores = scores.reshape(-1)
+        if scores.ndim != 1 or scores.shape[0] != self._n:
+            raise ValueError("x_theta must have shape (n,)")
+        return scores
+
+    def _resolve_scores_many(self, Theta: Array, XTheta: Optional[Array]) -> Array:
+        if XTheta is None:
+            return (self._X @ Theta.T).astype(float, copy=False)
+        scores = np.asarray(XTheta, dtype=float)
+        if scores.ndim != 2:
+            raise ValueError("XTheta must have shape (n, k) or (k, n)")
+        if scores.shape == (Theta.shape[0], self._n):
+            scores = scores.T
+        elif scores.shape != (self._n, Theta.shape[0]):
+            raise ValueError("XTheta must have shape (n, k) or (k, n)")
+        return scores
+
+    # -------------------------------------------------------------- objectives
+    def objective(self, theta: Array, *, x_theta: Optional[Array] = None) -> float:
+        theta_arr = self._validate_theta(theta)
+        scores = self._resolve_scores_single(theta_arr, x_theta)
+        if self._estimator == "logistic":
+            data = float(np.mean(np.logaddexp(0.0, scores) - self._y * scores))
+        else:
+            resid = self._y - scores
+            data = float(0.5 * np.mean(resid * resid))
+        reg = 0.5 * self._lam * float(theta_arr @ theta_arr)
+        return data + reg
+
+    def objective_many(self, Theta: Array, *, XTheta: Optional[Array] = None) -> Array:
+        Theta_arr = self._validate_thetas(Theta)
+        scores = self._resolve_scores_many(Theta_arr, XTheta)
+        if self._estimator == "logistic":
+            loss_terms = np.logaddexp(0.0, scores) - self._y[:, None] * scores
+            data = np.mean(loss_terms, axis=0)
+        else:
+            resid = self._y[:, None] - scores
+            data = 0.5 * np.mean(resid * resid, axis=0)
+        reg = 0.5 * self._lam * np.sum(Theta_arr * Theta_arr, axis=1)
+        return (data + reg).astype(float, copy=False)
+
+    def loss_gap(self, theta: Array, *, x_theta: Optional[Array] = None) -> float:
+        return float(self.objective(theta, x_theta=x_theta) - self._L_hat)
+
+    def loss_gap_many(self, Theta: Array, *, XTheta: Optional[Array] = None) -> Array:
+        return self.objective_many(Theta, XTheta=XTheta) - self._L_hat
+
+    def contains(self, theta: Array, *, x_theta: Optional[Array] = None, atol: Optional[float] = None) -> bool:
+        tol = self._tol if atol is None else float(atol)
+        return bool(self.loss_gap(theta, x_theta=x_theta) <= self._epsilon + tol)
+
+    def contains_many(
+        self,
+        Theta: Array,
+        *,
+        XTheta: Optional[Array] = None,
+        atol: Optional[float] = None,
+    ) -> Array:
+        tol = self._tol if atol is None else float(atol)
+        gaps = self.loss_gap_many(Theta, XTheta=XTheta)
+        return gaps <= self._epsilon + tol
 
 
 class RashomonSet:
@@ -106,10 +244,11 @@ class RashomonSet:
         self._epsilon_value: Optional[float] = None
         self._implied_alpha: Optional[float] = None
 
-        # Cached for HVP
+        # Cached for HVP / membership
         self._X: Optional[Array] = None
         self._y: Optional[Array] = None
         self._w_diag: Optional[Array] = None  # logistic weights p(1-p)
+        self._oracle: Optional[_MembershipOracle] = None
 
     # ------------------------------ Public API ------------------------------
     def fit(self, X: Array, y: Array) -> "RashomonSet":
@@ -122,6 +261,7 @@ class RashomonSet:
         - L(θ) matches proposal: averaged loss + (λ/2)||θ||^2.
         - Guardrails enforce λ>0 and reasonable conditioning unless overridden.
         """
+        self._oracle = None
         X = np.asarray(X)
         y = np.asarray(y)
         if X.ndim != 2:
@@ -167,6 +307,17 @@ class RashomonSet:
 
         # Epsilon calibration
         self._epsilon_value, self._implied_alpha = self._calibrate_epsilon()
+        if self._X is None or self._y is None or self._lambda is None or self._L_hat is None or self._epsilon_value is None:
+            raise RuntimeError("Model calibration incomplete after fit().")
+        self._oracle = _MembershipOracle(
+            estimator=self.estimator,
+            X=self._X,
+            y=self._y,
+            lam=self._lambda,
+            L_hat=self._L_hat,
+            epsilon=self._epsilon_value,
+            tol=self.tol,
+        )
         self._fitted = True
         return self
 
@@ -207,37 +358,33 @@ class RashomonSet:
         delta = float(np.sqrt(2.0 * self._epsilon_value) * hinv_norm)
         return {"min": center - delta, "max": center + delta}
 
-    def objective(self, theta: Array) -> float:
+    def objective(self, theta: Array, *, x_theta: Optional[Array] = None) -> float:
         """Compute penalized objective L(θ) at parameter θ.
 
         L(θ) = average loss + (λ/2)||θ||^2
         """
         if not self._fitted:
             raise RuntimeError("Call fit() first.")
-        if self._X is None or self._y is None or self._lambda is None:
-            raise RuntimeError("Model not fully initialized.")
-        theta = np.asarray(theta, dtype=float)
-        if theta.ndim != 1 or theta.shape[0] != self._d:
-            raise ValueError("theta must be a 1D vector of length d")
-        if self.estimator == "logistic":
-            return self._logistic_loss(self._X, self._y, theta, self._lambda)
-        resid = self._y - self._X @ theta
-        return float(0.5 * np.mean(resid ** 2) + 0.5 * self._lambda * float(theta @ theta))
+        if self._oracle is None:
+            raise RuntimeError("Membership oracle not initialized.")
+        return float(self._oracle.objective(theta, x_theta=x_theta))
 
-    def loss_gap(self, theta: Array) -> float:
+    def loss_gap(self, theta: Array, *, x_theta: Optional[Array] = None) -> float:
         """Return L(θ) - L(θ̂)."""
-        if self._L_hat is None:
+        if self._oracle is None:
             raise RuntimeError("Call fit() first.")
-        return float(self.objective(theta) - self._L_hat)
+        return float(self._oracle.loss_gap(theta, x_theta=x_theta))
 
-    def contains(self, theta: Array, atol: float = 1e-12) -> bool:
+    def contains(self, theta: Array, atol: float = 1e-12, *, x_theta: Optional[Array] = None) -> bool:
         """Return True if θ is inside the ε-Rashomon set: L(θ) - L(θ̂) ≤ ε."""
         if self._epsilon_value is None:
             raise RuntimeError("Call fit() first.")
-        return bool(self.loss_gap(theta) <= self._epsilon_value + float(atol))
+        if self._oracle is None:
+            raise RuntimeError("Membership oracle not initialized.")
+        return bool(self._oracle.contains(theta, x_theta=x_theta, atol=float(atol)))
 
     # ---------------------- Vectorized membership (D14) ---------------------
-    def objective_many(self, Theta: Array) -> Array:
+    def objective_many(self, Theta: Array, *, XTheta: Optional[Array] = None) -> Array:
         """Vectorized penalized objective for a batch of parameters.
 
         Parameters
@@ -252,41 +399,26 @@ class RashomonSet:
         """
         if not self._fitted:
             raise RuntimeError("Call fit() first.")
-        if self._X is None or self._y is None or self._lambda is None:
-            raise RuntimeError("Model not fully initialized.")
-        T = np.asarray(Theta, dtype=float)
-        if T.ndim == 1:
-            T = T[None, :]
-        if T.ndim != 2 or T.shape[1] != self._d:
-            raise ValueError("Theta must have shape (k, d)")
-        lam = self._lambda
-        if self.estimator == "logistic":
-            # z = X @ Theta^T  (n, k)
-            z = self._X @ T.T
-            # Stable logistic loss using logaddexp(0, z)
-            loss_terms = np.logaddexp(0.0, z) - self._y[:, None] * z
-            data = np.mean(loss_terms, axis=0)
-        else:
-            resid = self._y[:, None] - (self._X @ T.T)
-            data = 0.5 * np.mean(resid * resid, axis=0)
-        reg = 0.5 * lam * np.sum(T * T, axis=1)
-        return (data + reg).astype(float, copy=False)
+        if self._oracle is None:
+            raise RuntimeError("Membership oracle not initialized.")
+        return self._oracle.objective_many(Theta, XTheta=XTheta)
 
-    def loss_gap_many(self, Theta: Array) -> Array:
+    def loss_gap_many(self, Theta: Array, *, XTheta: Optional[Array] = None) -> Array:
         """Vectorized loss gap: L(θ_j) - L(θ̂) for rows of Theta."""
-        if self._L_hat is None:
+        if self._oracle is None:
             raise RuntimeError("Call fit() first.")
-        return self.objective_many(Theta) - float(self._L_hat)
+        return self._oracle.loss_gap_many(Theta, XTheta=XTheta)
 
-    def contains_many(self, Theta: Array, atol: float = 1e-12) -> Array:
+    def contains_many(self, Theta: Array, atol: float = 1e-12, *, XTheta: Optional[Array] = None) -> Array:
         """Vectorized membership oracle: return mask of rows inside ε-set.
 
         Returns a boolean array of shape (k,).
         """
         if self._epsilon_value is None:
             raise RuntimeError("Call fit() first.")
-        gaps = self.loss_gap_many(Theta)
-        return (gaps <= self._epsilon_value + float(atol))
+        if self._oracle is None:
+            raise RuntimeError("Membership oracle not initialized.")
+        return self._oracle.contains_many(Theta, XTheta=XTheta, atol=float(atol))
 
     # --------------------------- Predictive API ----------------------------
     def decision_function(self, X: Array) -> Array:
@@ -591,18 +723,16 @@ class RashomonSet:
             return rho * float(self._L_hat), None
         if mode == "LR_alpha":
             alpha = float(self.epsilon)
-            precond_ok = (self._lambda is not None and self._lambda == 0.0)
-            # Penalized LR violates Wilks; bootstrap fallback if enabled
             if not _HAS_SCIPY:
                 warnings.warn("scipy not available; falling back to percent_loss calibration")
                 return 0.05 * float(self._L_hat), None
             if not (0.0 < alpha < 1.0):
                 warnings.warn("LR_alpha expects alpha in (0,1); clipping")
                 alpha = float(np.clip(alpha, 1e-12, 1 - 1e-12))
+            precond_ok = self._lambda is not None and self._lambda == 0.0
             if precond_ok or self.safety_override:
-            eps = 0.5 * chi2.ppf(1.0 - alpha, df=self._d) / self._n
-            return float(eps), alpha
-            # Bootstrap fallback path
+                eps = 0.5 * chi2.ppf(1.0 - alpha, df=self._d) / self._n
+                return float(eps), alpha
             if self.bootstrap_fallback:
                 epsb = self._bootstrap_lr_alpha(alpha)
                 return float(epsb), alpha
