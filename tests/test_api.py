@@ -224,6 +224,18 @@ def test_coef_intervals_and_sampler_membership():
     assert chain.shape == (25, rs_whitened.n_features_in_)
     assert np.all(rs_whitened.contains_many(chain))
 
+    # Explicit Euclidean directions without preconditioning
+    rs_euclid = RashomonSet(
+        estimator="logistic",
+        random_state=0,
+        epsilon=0.05,
+        epsilon_mode="percent_loss",
+        sampler="hitandrun",
+    ).fit(X, y)
+    chain_euclid = rs_euclid.sample(n_samples=15, burnin=5, thin=1, directions="euclidean", precondition=False, random_state=321)
+    assert chain_euclid.shape == (15, rs_euclid.n_features_in_)
+    assert np.all(rs_euclid.contains_many(chain_euclid))
+
 
 def test_model_class_reliance_detects_informative_features():
     rng = np.random.default_rng(21)

@@ -584,6 +584,7 @@ class RashomonSet:
         burnin: int = 200,
         thin: int = 1,
         directions: Optional[str] = None,
+        precondition: Optional[bool] = None,
         t_init: float = 1.0,
         growth: float = 2.0,
         max_bracket: float = 1e6,
@@ -610,9 +611,17 @@ class RashomonSet:
         if max_bracket <= 0.0:
             raise ValueError("max_bracket must be positive")
 
-        dir_mode = ("whitened" if self.measure == "lr" else "euclidean") if directions is None else directions.lower()
+        if directions is None:
+            dir_mode = "whitened" if self.measure == "lr" else "euclidean"
+        else:
+            dir_mode = directions.lower()
         if dir_mode not in {"whitened", "euclidean"}:
             raise ValueError("directions must be 'whitened' or 'euclidean'")
+
+        if precondition is None:
+            use_precondition = dir_mode == "whitened"
+        else:
+            use_precondition = bool(precondition)
 
         oracle = self._oracle
         eps = float(self._epsilon_value)
@@ -680,7 +689,7 @@ class RashomonSet:
             step += 1
 
             g = rng.normal(size=self._d)
-            if dir_mode == "whitened":
+            if use_precondition:
                 v = self._cg_solve(g, tol=self.tol, max_iter=self.max_iter)
             else:
                 v = g
