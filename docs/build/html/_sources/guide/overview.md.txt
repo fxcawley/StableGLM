@@ -1,8 +1,0 @@
-# Overview
-
-StableGLM delivers ε-Rashomon sets for convex ERM GLMs, with fast ellipsoid certificates and exact membership sampling.
-
-- See the {doc}`quickstart <quickstart>` to get started quickly.
-- API reference: see {doc}`api/reference <../api/reference>`
-- Project milestones: see {doc}`../project_plan`
-- Reproducibility notes: see {doc}`../reproducibility`
