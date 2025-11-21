@@ -1557,52 +1557,51 @@ class RashomonSet:
                 base = 1.0 - ss_res / ss_tot if ss_tot > 0 else 1.0
 
             # Permutation importance for each feature
-            for j in range(self._d):
-                perm_scores = np.zeros(n_permutations, dtype=float)
+        for j in range(self._d):
+            perm_scores = np.zeros(n_permutations, dtype=float)
 
-                for p in range(n_permutations):
-                    Xp = X.copy()
+            for p in range(n_permutations):
+                Xp = X.copy()
 
-                    if perm_mode == "iid":
-                        # Standard permutation
-                        rng.shuffle(Xp[:, j])
-                    elif perm_mode == "residual":
-                        # Permute residuals from prediction without feature j
-                        theta_minus_j = theta_s.copy()
-                        theta_minus_j[j] = 0.0
-                        pred_minus_j = X @ theta_minus_j
-                        residual_j = X[:, j] - pred_minus_j / (theta_s[j] + 1e-12)
-                        residual_j_perm = residual_j.copy()
-                        rng.shuffle(residual_j_perm)
-                        Xp[:, j] = residual_j_perm + pred_minus_j / (theta_s[j] + 1e-12)
-                    elif perm_mode == "conditional":
-                        # Conditional permutation (simplified: bin-based)
-                        # Bin samples by correlated features and permute within bins
-                        n_bins = max(3, int(np.sqrt(X.shape[0])))
-                        # Use mean of other features for binning
-                        other_mean = np.mean(np.delete(X, j, axis=1), axis=1)
-                        bins = np.digitize(other_mean, np.linspace(other_mean.min(), other_mean.max(), n_bins))
-                        for b in range(1, n_bins + 1):
-                            mask = bins == b
-                            if np.sum(mask) > 1:
-                                Xp[mask, j] = rng.permutation(Xp[mask, j])
-                    else:
-                        raise ValueError(f"Unknown perm_mode: {perm_mode}")
+                if perm_mode == "iid":
+                    # Standard permutation
+                    rng.shuffle(Xp[:, j])
+                elif perm_mode == "residual":
+                    # Permute residuals from prediction without feature j
+                    theta_minus_j = theta_s.copy()
+                    theta_minus_j[j] = 0.0
+                    pred_minus_j = X @ theta_minus_j
+                    residual_j = X[:, j] - pred_minus_j / (theta_s[j] + 1e-12)
+                    residual_j_perm = residual_j.copy()
+                    rng.shuffle(residual_j_perm)
+                    Xp[:, j] = residual_j_perm + pred_minus_j / (theta_s[j] + 1e-12)
+                elif perm_mode == "conditional":
+                    # Conditional permutation (simplified: bin-based)
+                    # Bin samples by correlated features and permute within bins
+                    n_bins = max(3, int(np.sqrt(X.shape[0])))
+                    # Use mean of other features for binning
+                    other_mean = np.mean(np.delete(X, j, axis=1), axis=1)
+                    bins = np.digitize(other_mean, np.linspace(other_mean.min(), other_mean.max(), n_bins))
+                    for b in range(1, n_bins + 1):
+                        mask = bins == b
+                        if np.sum(mask) > 1:
+                            Xp[mask, j] = rng.permutation(Xp[mask, j])
+                else:
+                    raise ValueError(f"Unknown perm_mode: {perm_mode}")
 
-                    # Score with permuted feature
-                    if self.estimator == "logistic":
-                        scores_p = Xp @ theta_s
-                        preds_p = (scores_p > 0.0).astype(int)
-                        score_p = float(np.mean((preds_p == y.astype(int)).astype(float)))
-                    else:
-                        preds_p = Xp @ theta_s
-                        ss_res_p = float(np.sum((y - preds_p) ** 2))
-                        score_p = 1.0 - ss_res_p / ss_tot if ss_tot > 0 else 1.0
+                # Score with permuted feature
+                if self.estimator == "logistic":
+                    scores_p = Xp @ theta_s
+                    preds_p = (scores_p > 0.0).astype(int)
+                    score_p = float(np.mean((preds_p == y.astype(int)).astype(float)))
+                else:
+                    preds_p = Xp @ theta_s
+                    ss_res_p = float(np.sum((y - preds_p) ** 2))
+                    score_p = 1.0 - ss_res_p / ss_tot if ss_tot > 0 else 1.0
 
-                    perm_scores[p] = base - score_p
+                perm_scores[p] = score_p
 
-                importance_matrix[s_idx, j] = float(np.mean(perm_scores))
-
+            importance_matrix[s_idx, j] = base - np.mean(perm_scores)
         # Aggregate across samples
         mean_importance = np.mean(importance_matrix, axis=0)
         std_importance = np.std(importance_matrix, axis=0)
@@ -1917,6 +1916,47 @@ class RashomonSet:
             "threshold": tau,
         }
 
+    def capacity(self) -> Dict[str, float]:
+        """Compute the capacity (log-volume) of the Rashomon set approximation.
+
+        The capacity is estimated as the log-volume of the approximating ellipsoid:
+        Vol(E) ∝ det(H)^{-1/2} * (2ε)^(d/2).
+        
+        We report the log-volume to avoid underflow/overflow in high dimensions.
+        
+        Returns
+        -------
+        dict with keys:
+            - 'log_volume': Log-volume of the ellipsoid approximation.
+            - 'effective_dim': Effective dimensionality (d).
+            - 'log_det_hessian': Log-determinant of the Hessian.
+        """
+        if not self._fitted or self._theta_hat is None or self._epsilon_value is None:
+            raise RuntimeError("Call fit() first")
+
+        # Use cached Cholesky L (H = L L^T)
+        # log(det(H)) = 2 * sum(log(diag(L)))
+        L = self._hessian_cholesky()
+        log_det_H = 2.0 * np.sum(np.log(np.diag(L)))
+        
+        # Log volume of ellipsoid E = {theta : (theta-theta_hat)^T H (theta-theta_hat) <= 2*epsilon}
+        # Vol(E) = V_d * sqrt(det(H^-1)) * (sqrt(2*epsilon))^d
+        #        = V_d * det(H)^(-1/2) * (2*epsilon)^(d/2)
+        # log(Vol) = log(V_d) - 0.5 * log_det_H + (d/2) * log(2*epsilon)
+        
+        d = self._d
+        # Log volume of unit ball in d dimensions: log(pi^(d/2) / gamma(d/2 + 1))
+        from scipy.special import gammaln
+        log_V_d = (d / 2.0) * np.log(np.pi) - gammaln(d / 2.0 + 1.0)
+        
+        log_vol = log_V_d - 0.5 * log_det_H + (d / 2.0) * np.log(2.0 * self._epsilon_value)
+        
+        return {
+            "log_volume": float(log_vol),
+            "effective_dim": float(d),
+            "log_det_hessian": float(log_det_H),
+        }
+
     def multiplicity(
         self,
         X: Array,
@@ -1937,7 +1977,7 @@ class RashomonSet:
         X : Array
             Data matrix.
         which : tuple or list, default=("ambiguity", "discrepancy")
-            Which metrics to compute. Options: "ambiguity", "discrepancy", "capacity" (future).
+            Which metrics to compute. Options: "ambiguity", "discrepancy", "capacity".
         y : Array, optional
             Labels (required for some threshold modes).
         samples : Array, optional
@@ -1987,12 +2027,7 @@ class RashomonSet:
                     **kwargs,
                 )
             elif metric == "capacity":
-                # Placeholder for future Rashomon capacity implementation (E26)
-                warnings.warn("Capacity metric not yet implemented", stacklevel=2)
-                result["capacity"] = {
-                    "capacity": None,
-                    "note": "Not yet implemented - see issue E26",
-                }
+                result["capacity"] = self.capacity()
             else:
                 warnings.warn(f"Unknown multiplicity metric: {metric}", stacklevel=2)
 

@@ -213,20 +213,24 @@ def test_multiplicity_combined():
     assert mult["discrepancy"]["discrepancy_bound"] is not None
 
 
-def test_multiplicity_capacity_placeholder():
-    """Test that capacity metric warns (not yet implemented)."""
+def test_multiplicity_capacity():
+    """Test capacity metric computation."""
     np.random.seed(42)
     X = np.random.randn(50, 5)
     y = np.random.randint(0, 2, 50)
 
     rs = RashomonSet(estimator="logistic", random_state=42).fit(X, y)
 
-    with pytest.warns(UserWarning, match="Capacity metric not yet implemented"):
-        mult = rs.multiplicity(X, which=["capacity"])
+    mult = rs.multiplicity(X, which=["capacity"])
 
     assert "capacity" in mult
-    assert mult["capacity"]["capacity"] is None
-    assert "note" in mult["capacity"]
+    cap = mult["capacity"]
+    assert "log_volume" in cap
+    assert "effective_dim" in cap
+    assert "log_det_hessian" in cap
+    assert isinstance(cap["log_volume"], float)
+    assert cap["effective_dim"] == 5.0
+    assert np.isfinite(cap["log_volume"])
 
 
 def test_ambiguity_larger_epsilon():
