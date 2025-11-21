@@ -249,6 +249,14 @@ class RashomonSet:
         self._y: Optional[Array] = None
         self._w_diag: Optional[Array] = None  # logistic weights p(1-p)
         self._oracle: Optional[_MembershipOracle] = None
+        
+        # Cached matrices for performance (D15-D17 optimizations)
+        self._H: Optional[Array] = None  # Hessian matrix
+        self._H_chol: Optional[Array] = None  # Cholesky factorization of H
+        self._H_inv_diag: Optional[Array] = None  # Diagonal of H^{-1} for preconditioning
+        
+        # Sampling diagnostics (D18)
+        self._last_sample_diagnostics: Optional[Dict[str, Any]] = None
 
     # ------------------------------ Public API ------------------------------
     def fit(self, X: Array, y: Array) -> "RashomonSet":
@@ -339,9 +347,21 @@ class RashomonSet:
             "kappa_H_est": self._estimate_hessian_condition_number(),
             "min_w_diag": float(np.min(self._w_diag)) if self._w_diag is not None else None,
             "min_signed_margin": self._compute_min_signed_margin(),
-            "set_fidelity": None,
-            "ess_per_min": None,
         }
+        
+        # Add sampling diagnostics if available (D18)
+        if self._last_sample_diagnostics is not None:
+            diag.update({
+                "sampler_diagnostics": self._last_sample_diagnostics,
+                "set_fidelity": self._last_sample_diagnostics.get("set_fidelity"),
+                "isotropy_ratio": self._last_sample_diagnostics.get("isotropy_ratio"),
+            })
+        else:
+            diag.update({
+                "set_fidelity": None,
+                "isotropy_ratio": None,
+            })
+        
         return diag
 
     def hacking_interval(self, s: Array) -> Dict[str, float]:
@@ -510,7 +530,17 @@ class RashomonSet:
         return out
 
     # -------------------------- Ellipsoid sampler ---------------------------
-    def _hessian_matrix(self) -> Array:
+    def _hessian_matrix(self, force_recompute: bool = False) -> Array:
+        """Compute or retrieve cached Hessian matrix.
+        
+        Parameters
+        ----------
+        force_recompute : bool
+            If True, recompute even if cached.
+        """
+        if not force_recompute and self._H is not None:
+            return self._H
+            
         if self._X is None or self._lambda is None:
             raise RuntimeError("Fit before requesting Hessian")
         X = self._X
@@ -523,7 +553,27 @@ class RashomonSet:
             H = (Xw.T @ Xw) / n + lam * np.eye(self._d)
         else:
             H = (X.T @ X) / n + lam * np.eye(self._d)
-        return H.astype(float, copy=False)
+        self._H = H.astype(float, copy=False)
+        return self._H
+    
+    def _hessian_cholesky(self, force_recompute: bool = False) -> Array:
+        """Compute or retrieve cached Cholesky factorization of Hessian.
+        
+        Returns L where H = L L^T.
+        """
+        if not force_recompute and self._H_chol is not None:
+            return self._H_chol
+        
+        H = self._hessian_matrix(force_recompute=force_recompute)
+        jitter = 0.0
+        for _ in range(3):
+            try:
+                L = np.linalg.cholesky(H + jitter * np.eye(self._d))
+                self._H_chol = L
+                return L
+            except np.linalg.LinAlgError:
+                jitter = 1e-10 if jitter == 0.0 else jitter * 10.0
+        raise RuntimeError("Hessian not SPD even with jitter")
 
     def sample(self, n_samples: int = 100, **kwargs: Any) -> Array:
         """Sample parameters using the configured sampler backend."""
@@ -540,9 +590,11 @@ class RashomonSet:
     def sample_ellipsoid(self, n_samples: int = 100, random_state: Optional[int] = None) -> Array:
         """Sample uniformly from the ellipsoid (θ-θ̂)^T H (θ-θ̂) ≤ 2ε.
 
-        Uses Cholesky factorization H=L L^T and maps a uniform point in the
+        Uses cached Cholesky factorization H=L L^T and maps a uniform point in the
         L2 unit ball via θ = θ̂ + L^{-1} (sqrt(2ε) r u), with u unit vector,
         r ~ U(0,1)^{1/d} for uniform-in-ball radius.
+        
+        Optimized with cached factorization (D15-D17).
         """
         if not self._fitted:
             raise RuntimeError("Call fit() first.")
@@ -551,30 +603,27 @@ class RashomonSet:
         d = self._d
         if n_samples <= 0:
             raise ValueError("n_samples must be positive")
-        H = self._hessian_matrix()
-        # Ensure positive definiteness (lam>0 already helps). Add tiny jitter if needed.
-        jitter = 0.0
-        for _ in range(3):
-            try:
-                L = np.linalg.cholesky(H + jitter * np.eye(d))
-                break
-            except np.linalg.LinAlgError:
-                jitter = 1e-10 if jitter == 0.0 else jitter * 10.0
-        else:
-            raise RuntimeError("Hessian not SPD even with jitter")
+        
+        # Use cached Cholesky factorization (major speedup)
+        L = self._hessian_cholesky()
+        
         seed = self._seed if random_state is None else int(random_state)
         rng = np.random.default_rng(seed)
         samples = np.empty((n_samples, d), dtype=float)
         scale = float(np.sqrt(2.0 * self._epsilon_value))
+        
+        # Vectorized generation for speed
+        gaussians = rng.normal(size=(n_samples, d))
+        norms = np.linalg.norm(gaussians, axis=1, keepdims=True)
+        unit_vecs = gaussians / (norms + 1e-18)
+        radii = rng.random(n_samples) ** (1.0 / d)
+        scaled_vecs = scale * radii[:, None] * unit_vecs
+        
+        # Solve L z = y for each sample (still sequential but much faster)
         for i in range(n_samples):
-            g = rng.normal(size=d)
-            norm = float(np.linalg.norm(g))
-            u = g / (norm + 1e-18)
-            r = float(rng.random()) ** (1.0 / d)
-            y = scale * r * u
-            # Solve L z = y → z = L^{-1} y
-            z = np.linalg.solve(L, y)
+            z = np.linalg.solve(L, scaled_vecs[i])
             samples[i] = self._theta_hat + z
+        
         return samples
 
     def sample_hitandrun(
@@ -591,8 +640,12 @@ class RashomonSet:
         max_bisect: int = 50,
         tol: float = 1e-10,
         random_state: Optional[int] = None,
+        compute_diagnostics: bool = True,
     ) -> Array:
-        """Hit-and-Run sampling using bracketed line search with safeguards."""
+        """Hit-and-Run sampling using bracketed line search with safeguards.
+        
+        Optimized with vectorized operations and diagnostic computation (D15-D18).
+        """
 
         if not self._fitted or self._theta_hat is None:
             raise RuntimeError("Call fit() first.")
@@ -690,7 +743,7 @@ class RashomonSet:
 
             g = rng.normal(size=self._d)
             if use_precondition:
-                v = self._cg_solve(g, tol=self.tol, max_iter=self.max_iter)
+                v = self._cg_solve(g, tol=self.tol, max_iter=self.max_iter, precondition=True)
             else:
                 v = g
             norm_v = float(np.linalg.norm(v))
@@ -719,6 +772,12 @@ class RashomonSet:
                 samples[saved] = theta
                 saved += 1
 
+        # Compute and cache diagnostics (D18)
+        if compute_diagnostics:
+            self._last_sample_diagnostics = self.compute_sample_diagnostics(
+                samples, burnin=0, compute_ess=True, compute_isotropy=True
+            )
+        
         return samples
 
     # --------------------------- Sklearn-style attrs -----------------------
@@ -915,27 +974,83 @@ class RashomonSet:
         # linear: W=1
         return (X.T @ (X @ v)) / n + lam * v
 
-    def _cg_solve(self, b: Array, tol: float, max_iter: int) -> Array:
+    def _get_preconditioner_diag(self) -> Array:
+        """Compute diagonal preconditioner approximation to H^{-1}.
+        
+        Caches result for repeated CG solves (D17 optimization).
+        """
+        if self._H_inv_diag is not None:
+            return self._H_inv_diag
+        
+        if self._X is None or self._lambda is None:
+            raise RuntimeError("Model not fitted")
+        
+        # Diagonal of H = diag(X^T W X)/n + lambda
+        X = self._X
+        n = self._n
+        lam = self._lambda
+        
+        if self.estimator == "logistic":
+            if self._w_diag is None:
+                raise RuntimeError("Weights unavailable")
+            H_diag = np.sum((X ** 2) * self._w_diag[:, None], axis=0) / n + lam
+        else:
+            H_diag = np.sum(X ** 2, axis=0) / n + lam
+        
+        # Inverse diagonal for preconditioning
+        self._H_inv_diag = 1.0 / (H_diag + 1e-12)
+        return self._H_inv_diag
+    
+    def _cg_solve(self, b: Array, tol: float, max_iter: int, precondition: bool = True) -> Array:
+        """Conjugate gradient solver with optional diagonal preconditioning.
+        
+        Optimized with caching (D17).
+        """
         x = np.zeros_like(b)
         r = b - self._Hv(x)
-        p = r.copy()
-        rsold = float(r @ r)
-        if np.sqrt(rsold) < tol:
+        
+        # Apply preconditioner
+        if precondition:
+            M_inv_diag = self._get_preconditioner_diag()
+            z = M_inv_diag * r
+            p = z.copy()
+            rsold = float(r @ z)
+        else:
+            p = r.copy()
+            rsold = float(r @ r)
+        
+        if np.sqrt(abs(rsold)) < tol:
             return x
+        
         for _ in range(max_iter):
             Ap = self._Hv(p)
-            alpha = rsold / float(p @ Ap + 1e-18)
+            pAp = float(p @ Ap)
+            if abs(pAp) < 1e-18:
+                break
+            alpha = rsold / pAp
             x = x + alpha * p
             r = r - alpha * Ap
-            rsnew = float(r @ r)
-            if np.sqrt(rsnew) < tol:
+            
+            if precondition:
+                z = M_inv_diag * r
+                rsnew = float(r @ z)
+            else:
+                rsnew = float(r @ r)
+            
+            if np.sqrt(abs(rsnew)) < tol:
                 break
-            p = r + (rsnew / rsold) * p
+            
+            beta = rsnew / rsold
+            if precondition:
+                p = z + beta * p
+            else:
+                p = r + beta * p
             rsold = rsnew
+        
         return x
 
     def _hinv_norm(self, s: Array) -> float:
-        z = self._cg_solve(s, tol=self.tol, max_iter=self.max_iter)
+        z = self._cg_solve(s, tol=self.tol, max_iter=self.max_iter, precondition=True)
         val = float(np.sqrt(max(s @ z, 0.0)))
         return val
 
@@ -977,6 +1092,115 @@ class RashomonSet:
         eps = q / (2.0 * n)
         return float(eps)
 
+    # -------------------------- Sampling Diagnostics (D18) ------------------
+    def compute_sample_diagnostics(
+        self,
+        samples: Array,
+        *,
+        burnin: int = 0,
+        compute_ess: bool = True,
+        compute_isotropy: bool = True,
+    ) -> Dict[str, Any]:
+        """Compute diagnostics for sampled parameters (ESS/min, chords, isotropy).
+        
+        Parameters
+        ----------
+        samples : array of shape (n_samples, d)
+            Sampled parameter vectors.
+        burnin : int
+            Number of initial samples to discard.
+        compute_ess : bool
+            Whether to compute effective sample size per minute (requires timing).
+        compute_isotropy : bool
+            Whether to compute isotropy ratio.
+        
+        Returns
+        -------
+        dict with keys:
+            - 'n_samples': number of samples after burnin
+            - 'set_fidelity': fraction of samples inside Rashomon set
+            - 'chord_mean': mean Euclidean distance between consecutive samples
+            - 'chord_std': std of chord distances
+            - 'chord_min': minimum chord distance
+            - 'chord_max': maximum chord distance
+            - 'isotropy_ratio': max/min eigenvalue of sample covariance (if requested)
+            - 'ess_per_param': ESS per parameter (if autocorrelation computable)
+        """
+        if samples.ndim != 2 or samples.shape[1] != self._d:
+            raise ValueError("samples must be (n_samples, d)")
+        
+        if burnin > 0:
+            samples = samples[burnin:]
+        
+        n_samples = samples.shape[0]
+        if n_samples < 2:
+            return {
+                "n_samples": n_samples,
+                "set_fidelity": None,
+                "chord_mean": None,
+                "chord_std": None,
+                "chord_min": None,
+                "chord_max": None,
+                "isotropy_ratio": None,
+                "ess_per_param": None,
+            }
+        
+        # Set fidelity: fraction inside epsilon-Rashomon set
+        mask = self.contains_many(samples)
+        set_fidelity = float(np.mean(mask))
+        
+        # Chord statistics: Euclidean distance between consecutive samples
+        diffs = np.diff(samples, axis=0)
+        chords = np.linalg.norm(diffs, axis=1)
+        chord_mean = float(np.mean(chords))
+        chord_std = float(np.std(chords))
+        chord_min = float(np.min(chords))
+        chord_max = float(np.max(chords))
+        
+        # Isotropy: eigenvalue ratio of sample covariance
+        isotropy_ratio = None
+        if compute_isotropy and n_samples >= self._d + 1:
+            try:
+                cov = np.cov(samples, rowvar=False)
+                eigvals = np.linalg.eigvalsh(cov)
+                eigvals = eigvals[eigvals > 1e-12]  # filter numerical zeros
+                if len(eigvals) >= 2:
+                    isotropy_ratio = float(eigvals[-1] / eigvals[0])
+            except Exception:
+                isotropy_ratio = None
+        
+        # ESS per parameter (using simple autocorrelation estimator)
+        ess_per_param = None
+        if compute_ess and n_samples >= 10:
+            try:
+                ess_vals = np.empty(self._d, dtype=float)
+                for j in range(self._d):
+                    chain = samples[:, j]
+                    # Simple ESS via autocorrelation at lag 1
+                    mean_j = np.mean(chain)
+                    var_j = np.var(chain)
+                    if var_j > 1e-12:
+                        acf1 = np.corrcoef(chain[:-1], chain[1:])[0, 1]
+                        acf1 = np.clip(acf1, -0.99, 0.99)
+                        ess_j = n_samples * (1 - acf1) / (1 + acf1)
+                        ess_vals[j] = max(1.0, ess_j)
+                    else:
+                        ess_vals[j] = float(n_samples)
+                ess_per_param = ess_vals
+            except Exception:
+                ess_per_param = None
+        
+        return {
+            "n_samples": n_samples,
+            "set_fidelity": set_fidelity,
+            "chord_mean": chord_mean,
+            "chord_std": chord_std,
+            "chord_min": chord_min,
+            "chord_max": chord_max,
+            "isotropy_ratio": isotropy_ratio,
+            "ess_per_param": ess_per_param,
+        }
+    
     # ------------------------------ Placeholders ----------------------------
     def variable_importance(self, mode: str = "VIC") -> Any:
         raise NotImplementedError
