@@ -1,5 +1,6 @@
 """Tests for VIC and MCR metrics (E20, E22)."""
 import numpy as np
+
 from rashomon import RashomonSet
 
 
@@ -22,10 +23,10 @@ def test_vic_computation():
         epsilon_mode="percent_loss",
         random_state=0
     ).fit(X, y)
-    
+
     # Compute VIC
     vic = rs.variable_importance_cloud(n_samples=50, random_state=123)
-    
+
     # Check structure
     assert "samples" in vic
     assert "mean" in vic
@@ -33,19 +34,19 @@ def test_vic_computation():
     assert "quantiles" in vic
     assert "intervals" in vic
     assert "feature_names" in vic
-    
+
     # Check shapes
     assert vic["samples"].shape == (50, 4)
     assert vic["mean"].shape == (4,)
     assert vic["std"].shape == (4,)
     assert vic["intervals"].shape == (4, 2)
     assert len(vic["feature_names"]) == 4
-    
+
     # Check quantiles
     for q in [0.05, 0.25, 0.5, 0.75, 0.95]:
         assert q in vic["quantiles"]
         assert vic["quantiles"][q].shape == (4,)
-    
+
     # Intervals should be [q_0.05, q_0.95]
     assert np.allclose(vic["intervals"][:, 0], vic["quantiles"][0.05])
     assert np.allclose(vic["intervals"][:, 1], vic["quantiles"][0.95])
@@ -60,14 +61,14 @@ def test_vic_with_feature_names():
         epsilon_mode="percent_loss",
         random_state=0
     ).fit(X, y)
-    
+
     names = ["age", "income", "score"]
     vic = rs.variable_importance_cloud(
         n_samples=30,
         feature_names=names,
         random_state=456
     )
-    
+
     assert vic["feature_names"] == names
 
 
@@ -80,13 +81,13 @@ def test_vic_ellipsoid_vs_hitandrun():
         epsilon_mode="percent_loss",
         random_state=0
     ).fit(X, y)
-    
+
     vic_ell = rs.variable_importance_cloud(
         n_samples=100,
         sampler="ellipsoid",
         random_state=111
     )
-    
+
     vic_har = rs.variable_importance_cloud(
         n_samples=50,
         sampler="hitandrun",
@@ -94,10 +95,10 @@ def test_vic_ellipsoid_vs_hitandrun():
         thin=2,
         random_state=222
     )
-    
+
     # Both should have similar structure
     assert vic_ell["mean"].shape == vic_har["mean"].shape
-    
+
     # Means should be reasonably close (within reasonable tolerance due to sampling)
     # This is a weak test - just checking they're in the same ballpark
     mean_diff = np.abs(vic_ell["mean"] - vic_har["mean"])
@@ -113,7 +114,7 @@ def test_vic_legacy_method():
         epsilon_mode="percent_loss",
         random_state=0
     ).fit(X, y)
-    
+
     # Legacy method should work
     vic = rs.variable_importance(mode="VIC")
     assert "samples" in vic
@@ -129,7 +130,7 @@ def test_mcr_enhanced_iid():
         epsilon_mode="percent_loss",
         random_state=0
     ).fit(X, y)
-    
+
     mcr = rs.model_class_reliance(
         X, y,
         n_permutations=8,
@@ -137,19 +138,19 @@ def test_mcr_enhanced_iid():
         perm_mode="iid",
         random_state=123
     )
-    
+
     # Check structure
     assert "feature_importance" in mcr
     assert "importance_std" in mcr
     assert "base_score" in mcr
     assert "collinearity_warning" in mcr
     assert "importance_matrix" in mcr
-    
+
     # Check shapes
     assert mcr["feature_importance"].shape == (4,)
     assert mcr["importance_std"].shape == (4,)
     assert mcr["importance_matrix"].shape == (20, 4)
-    
+
     # Base score should be reasonable
     assert 0.0 <= mcr["base_score"] <= 1.0
 
@@ -163,7 +164,7 @@ def test_mcr_residual_mode():
         epsilon_mode="percent_loss",
         random_state=0
     ).fit(X, y)
-    
+
     mcr = rs.model_class_reliance(
         X, y,
         n_permutations=6,
@@ -172,7 +173,7 @@ def test_mcr_residual_mode():
         check_collinearity=False,
         random_state=321
     )
-    
+
     assert mcr["feature_importance"].shape == (3,)
     assert mcr["importance_std"].shape == (3,)
 
@@ -186,7 +187,7 @@ def test_mcr_conditional_mode():
         epsilon_mode="percent_loss",
         random_state=0
     ).fit(X, y)
-    
+
     mcr = rs.model_class_reliance(
         X, y,
         n_permutations=5,
@@ -194,7 +195,7 @@ def test_mcr_conditional_mode():
         perm_mode="conditional",
         random_state=789
     )
-    
+
     assert mcr["feature_importance"].shape == (3,)
 
 
@@ -203,22 +204,22 @@ def test_mcr_collinearity_detection():
     n, d = 60, 4
     rng = np.random.default_rng(99)
     X = rng.normal(size=(n, d))
-    
+
     # Make features 0 and 1 highly correlated
     X[:, 1] = 0.95 * X[:, 0] + 0.05 * rng.normal(size=n)
-    
+
     w = rng.normal(size=d)
     logits = X @ w
     p = 1.0 / (1.0 + np.exp(-logits))
     y = (rng.random(n) < p).astype(float)
-    
+
     rs = RashomonSet(
         estimator="logistic",
         epsilon=0.1,
         epsilon_mode="percent_loss",
         random_state=0
     ).fit(X, y)
-    
+
     # Should detect collinearity
     mcr = rs.model_class_reliance(
         X, y,
@@ -227,7 +228,7 @@ def test_mcr_collinearity_detection():
         check_collinearity=True,
         random_state=111
     )
-    
+
     # Should have collinearity warning
     assert mcr["collinearity_warning"] is not None
     assert len(mcr["collinearity_warning"]) > 0
@@ -240,14 +241,14 @@ def test_mcr_linear_model():
     X = rng.normal(size=(n, d))
     w = np.array([2.0, -1.5, 0.5])
     y = X @ w + 0.1 * rng.normal(size=n)
-    
+
     rs = RashomonSet(
         estimator="linear",
         epsilon=0.05,
         epsilon_mode="percent_loss",
         random_state=0
     ).fit(X, y)
-    
+
     mcr = rs.model_class_reliance(
         X, y,
         n_permutations=5,
@@ -255,7 +256,7 @@ def test_mcr_linear_model():
         perm_mode="iid",
         random_state=222
     )
-    
+
     # Feature 0 should be most important (largest coefficient)
     assert mcr["feature_importance"][0] == np.max(mcr["feature_importance"])
 
@@ -269,21 +270,21 @@ def test_vic_plot_runs():
         epsilon_mode="percent_loss",
         random_state=0
     ).fit(X, y)
-    
+
     try:
         import matplotlib
         matplotlib.use("Agg")  # Non-interactive backend
-        
+
         fig, ax = rs.plot_vic(n_samples=30, random_state=123)
         assert fig is not None
         assert ax is not None
-        
+
         # Can also pass pre-computed VIC
         vic = rs.variable_importance_cloud(n_samples=30, random_state=123)
         fig2, ax2 = rs.plot_vic(vic_result=vic)
         assert fig2 is not None
         assert ax2 is not None
-        
+
     except ImportError:
         # Matplotlib not available - skip
         pass

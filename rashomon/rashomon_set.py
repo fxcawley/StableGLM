@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Tuple
 import os
 import platform
 import warnings
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 
@@ -70,7 +70,7 @@ class _MembershipOracle:
         self._d = X.shape[1]
 
     # ------------------------------------------------------------------ utils
-    def with_tolerance(self, tol: float) -> "_MembershipOracle":
+    def with_tolerance(self, tol: float) -> _MembershipOracle:
         """Return a cloned oracle with a different membership tolerance."""
 
         return _MembershipOracle(
@@ -249,17 +249,17 @@ class RashomonSet:
         self._y: Optional[Array] = None
         self._w_diag: Optional[Array] = None  # logistic weights p(1-p)
         self._oracle: Optional[_MembershipOracle] = None
-        
+
         # Cached matrices for performance (D15-D17 optimizations)
         self._H: Optional[Array] = None  # Hessian matrix
         self._H_chol: Optional[Array] = None  # Cholesky factorization of H
         self._H_inv_diag: Optional[Array] = None  # Diagonal of H^{-1} for preconditioning
-        
+
         # Sampling diagnostics (D18)
         self._last_sample_diagnostics: Optional[Dict[str, Any]] = None
 
     # ------------------------------ Public API ------------------------------
-    def fit(self, X: Array, y: Array) -> "RashomonSet":
+    def fit(self, X: Array, y: Array) -> RashomonSet:
         """Fit the base GLM and prepare diagnostics and operators.
 
         Notes
@@ -348,7 +348,7 @@ class RashomonSet:
             "min_w_diag": float(np.min(self._w_diag)) if self._w_diag is not None else None,
             "min_signed_margin": self._compute_min_signed_margin(),
         }
-        
+
         # Add sampling diagnostics if available (D18)
         if self._last_sample_diagnostics is not None:
             diag.update({
@@ -361,7 +361,7 @@ class RashomonSet:
                 "set_fidelity": None,
                 "isotropy_ratio": None,
             })
-        
+
         return diag
 
     def hacking_interval(self, s: Array) -> Dict[str, float]:
@@ -540,7 +540,7 @@ class RashomonSet:
         """
         if not force_recompute and self._H is not None:
             return self._H
-            
+
         if self._X is None or self._lambda is None:
             raise RuntimeError("Fit before requesting Hessian")
         X = self._X
@@ -555,7 +555,7 @@ class RashomonSet:
             H = (X.T @ X) / n + lam * np.eye(self._d)
         self._H = H.astype(float, copy=False)
         return self._H
-    
+
     def _hessian_cholesky(self, force_recompute: bool = False) -> Array:
         """Compute or retrieve cached Cholesky factorization of Hessian.
         
@@ -563,7 +563,7 @@ class RashomonSet:
         """
         if not force_recompute and self._H_chol is not None:
             return self._H_chol
-        
+
         H = self._hessian_matrix(force_recompute=force_recompute)
         jitter = 0.0
         for _ in range(3):
@@ -603,27 +603,27 @@ class RashomonSet:
         d = self._d
         if n_samples <= 0:
             raise ValueError("n_samples must be positive")
-        
+
         # Use cached Cholesky factorization (major speedup)
         L = self._hessian_cholesky()
-        
+
         seed = self._seed if random_state is None else int(random_state)
         rng = np.random.default_rng(seed)
         samples = np.empty((n_samples, d), dtype=float)
         scale = float(np.sqrt(2.0 * self._epsilon_value))
-        
+
         # Vectorized generation for speed
         gaussians = rng.normal(size=(n_samples, d))
         norms = np.linalg.norm(gaussians, axis=1, keepdims=True)
         unit_vecs = gaussians / (norms + 1e-18)
         radii = rng.random(n_samples) ** (1.0 / d)
         scaled_vecs = scale * radii[:, None] * unit_vecs
-        
+
         # Solve L z = y for each sample (still sequential but much faster)
         for i in range(n_samples):
             z = np.linalg.solve(L, scaled_vecs[i])
             samples[i] = self._theta_hat + z
-        
+
         return samples
 
     def sample_hitandrun(
@@ -777,7 +777,7 @@ class RashomonSet:
             self._last_sample_diagnostics = self.compute_sample_diagnostics(
                 samples, burnin=0, compute_ess=True, compute_isotropy=True
             )
-        
+
         return samples
 
     # --------------------------- Sklearn-style attrs -----------------------
@@ -811,7 +811,7 @@ class RashomonSet:
             "bootstrap_reps": getattr(self, "bootstrap_reps", 200),
         }
 
-    def set_params(self, **params: Any) -> "RashomonSet":
+    def set_params(self, **params: Any) -> RashomonSet:
         for key, value in params.items():
             if not hasattr(self, key):
                 raise ValueError(f"Unknown parameter: {key}")
@@ -981,26 +981,26 @@ class RashomonSet:
         """
         if self._H_inv_diag is not None:
             return self._H_inv_diag
-        
+
         if self._X is None or self._lambda is None:
             raise RuntimeError("Model not fitted")
-        
+
         # Diagonal of H = diag(X^T W X)/n + lambda
         X = self._X
         n = self._n
         lam = self._lambda
-        
+
         if self.estimator == "logistic":
             if self._w_diag is None:
                 raise RuntimeError("Weights unavailable")
             H_diag = np.sum((X ** 2) * self._w_diag[:, None], axis=0) / n + lam
         else:
             H_diag = np.sum(X ** 2, axis=0) / n + lam
-        
+
         # Inverse diagonal for preconditioning
         self._H_inv_diag = 1.0 / (H_diag + 1e-12)
         return self._H_inv_diag
-    
+
     def _cg_solve(self, b: Array, tol: float, max_iter: int, precondition: bool = True) -> Array:
         """Conjugate gradient solver with optional diagonal preconditioning.
         
@@ -1008,7 +1008,7 @@ class RashomonSet:
         """
         x = np.zeros_like(b)
         r = b - self._Hv(x)
-        
+
         # Apply preconditioner
         if precondition:
             M_inv_diag = self._get_preconditioner_diag()
@@ -1018,10 +1018,10 @@ class RashomonSet:
         else:
             p = r.copy()
             rsold = float(r @ r)
-        
+
         if np.sqrt(abs(rsold)) < tol:
             return x
-        
+
         for _ in range(max_iter):
             Ap = self._Hv(p)
             pAp = float(p @ Ap)
@@ -1030,23 +1030,23 @@ class RashomonSet:
             alpha = rsold / pAp
             x = x + alpha * p
             r = r - alpha * Ap
-            
+
             if precondition:
                 z = M_inv_diag * r
                 rsnew = float(r @ z)
             else:
                 rsnew = float(r @ r)
-            
+
             if np.sqrt(abs(rsnew)) < tol:
                 break
-            
+
             beta = rsnew / rsold
             if precondition:
                 p = z + beta * p
             else:
                 p = r + beta * p
             rsold = rsnew
-        
+
         return x
 
     def _hinv_norm(self, s: Array) -> float:
@@ -1128,10 +1128,10 @@ class RashomonSet:
         """
         if samples.ndim != 2 or samples.shape[1] != self._d:
             raise ValueError("samples must be (n_samples, d)")
-        
+
         if burnin > 0:
             samples = samples[burnin:]
-        
+
         n_samples = samples.shape[0]
         if n_samples < 2:
             return {
@@ -1144,11 +1144,11 @@ class RashomonSet:
                 "isotropy_ratio": None,
                 "ess_per_param": None,
             }
-        
+
         # Set fidelity: fraction inside epsilon-Rashomon set
         mask = self.contains_many(samples)
         set_fidelity = float(np.mean(mask))
-        
+
         # Chord statistics: Euclidean distance between consecutive samples
         diffs = np.diff(samples, axis=0)
         chords = np.linalg.norm(diffs, axis=1)
@@ -1156,7 +1156,7 @@ class RashomonSet:
         chord_std = float(np.std(chords))
         chord_min = float(np.min(chords))
         chord_max = float(np.max(chords))
-        
+
         # Isotropy: eigenvalue ratio of sample covariance
         isotropy_ratio = None
         if compute_isotropy and n_samples >= self._d + 1:
@@ -1168,7 +1168,7 @@ class RashomonSet:
                     isotropy_ratio = float(eigvals[-1] / eigvals[0])
             except Exception:
                 isotropy_ratio = None
-        
+
         # ESS per parameter (using simple autocorrelation estimator)
         ess_per_param = None
         if compute_ess and n_samples >= 10:
@@ -1189,7 +1189,7 @@ class RashomonSet:
                 ess_per_param = ess_vals
             except Exception:
                 ess_per_param = None
-        
+
         return {
             "n_samples": n_samples,
             "set_fidelity": set_fidelity,
@@ -1200,7 +1200,7 @@ class RashomonSet:
             "isotropy_ratio": isotropy_ratio,
             "ess_per_param": ess_per_param,
         }
-    
+
     # ----------------------------- VIC (E20) --------------------------------
     def variable_importance_cloud(
         self,
@@ -1244,10 +1244,10 @@ class RashomonSet:
         """
         if not self._fitted:
             raise RuntimeError("Call fit() first.")
-        
+
         # Determine sampler
         backend = sampler if sampler is not None else self.sampler
-        
+
         # Generate samples
         seed = self._seed if random_state is None else int(random_state)
         if backend.lower() == "ellipsoid":
@@ -1262,19 +1262,19 @@ class RashomonSet:
             )
         else:
             raise ValueError(f"Unknown sampler: {backend}")
-        
+
         # Compute statistics
         mean = np.mean(samples, axis=0)
         std = np.std(samples, axis=0)
-        
+
         # Quantiles
         quantiles = {}
         for q in [0.05, 0.25, 0.5, 0.75, 0.95]:
             quantiles[q] = np.quantile(samples, q, axis=0)
-        
+
         # 90% intervals
         intervals = np.stack([quantiles[0.05], quantiles[0.95]], axis=1)
-        
+
         # Feature names
         if feature_names is None:
             names = [f"feature_{i}" for i in range(self._d)]
@@ -1282,7 +1282,7 @@ class RashomonSet:
             if len(feature_names) != self._d:
                 raise ValueError(f"feature_names must have length d={self._d}")
             names = list(feature_names)
-        
+
         return {
             "samples": samples,
             "mean": mean,
@@ -1291,7 +1291,7 @@ class RashomonSet:
             "intervals": intervals,
             "feature_names": names,
         }
-    
+
     def plot_vic(
         self,
         vic_result: Optional[Dict[str, Any]] = None,
@@ -1327,7 +1327,7 @@ class RashomonSet:
             import matplotlib.pyplot as plt
         except ImportError:
             raise ImportError("matplotlib is required for plotting. Install via: pip install matplotlib")
-        
+
         # Compute VIC if not provided
         if vic_result is None:
             vic_result = self.variable_importance_cloud(
@@ -1335,19 +1335,19 @@ class RashomonSet:
                 feature_names=feature_names,
                 **kwargs,
             )
-        
+
         samples = vic_result["samples"]
         names = vic_result["feature_names"]
         intervals = vic_result["intervals"]
         mean = vic_result["mean"]
-        
+
         d = samples.shape[1]
-        
+
         # Create figure
         if figsize is None:
             figsize = (min(12, max(8, d * 1.2)), 6)
         fig, ax = plt.subplots(figsize=figsize)
-        
+
         # Violin or box plots for each feature
         positions = np.arange(d)
         parts = ax.violinplot(
@@ -1357,17 +1357,17 @@ class RashomonSet:
             showmeans=False,
             showmedians=False,
         )
-        
+
         # Color violins
         for pc in parts["bodies"]:
             pc.set_facecolor("#8dd3c7")
             pc.set_alpha(0.7)
             pc.set_edgecolor("black")
             pc.set_linewidth(1)
-        
+
         # Add mean markers
         ax.scatter(positions, mean, color="red", s=60, zorder=3, label="Mean", marker="D")
-        
+
         # Add theta_hat if requested
         if show_theta_hat and self._theta_hat is not None:
             ax.scatter(
@@ -1379,7 +1379,7 @@ class RashomonSet:
                 label="θ̂ (optimal)",
                 marker="*",
             )
-        
+
         # Add 90% intervals as error bars
         ax.errorbar(
             positions,
@@ -1391,7 +1391,7 @@ class RashomonSet:
             capsize=3,
             label="90% interval",
         )
-        
+
         # Styling
         ax.set_xticks(positions)
         ax.set_xticklabels(names, rotation=45, ha="right")
@@ -1401,10 +1401,10 @@ class RashomonSet:
         ax.axhline(0, color="black", linestyle="--", linewidth=0.8, alpha=0.5)
         ax.legend(loc="best")
         ax.grid(True, alpha=0.3, axis="y")
-        
+
         plt.tight_layout()
         return fig, ax
-    
+
     # ------------------------------ Placeholders ----------------------------
     def variable_importance(self, mode: str = "VIC") -> Any:
         """Legacy method - use variable_importance_cloud() instead."""
@@ -1463,10 +1463,10 @@ class RashomonSet:
         y = np.asarray(y)
         if X.ndim != 2 or X.shape[1] != self._d:
             raise ValueError("X must be 2D with d features")
-        
+
         seed = self._seed if random_state is None else int(random_state)
         rng = np.random.default_rng(seed)
-        
+
         # Check for collinearity
         collinear_pairs = []
         if check_collinearity and X.shape[0] >= self._d:
@@ -1483,16 +1483,16 @@ class RashomonSet:
                     )
             except Exception:
                 pass
-        
+
         # Sample parameters from Rashomon set
         samples = self.sample_ellipsoid(n_samples=n_samples, random_state=seed)
-        
+
         # Compute importance for each sampled parameter
         importance_matrix = np.zeros((n_samples, self._d), dtype=float)
-        
+
         for s_idx in range(n_samples):
             theta_s = samples[s_idx]
-            
+
             # Base score with this parameter
             if self.estimator == "logistic":
                 scores = X @ theta_s
@@ -1504,14 +1504,14 @@ class RashomonSet:
                 y_mean = float(np.mean(y))
                 ss_tot = float(np.sum((y - y_mean) ** 2))
                 base = 1.0 - ss_res / ss_tot if ss_tot > 0 else 1.0
-            
+
             # Permutation importance for each feature
             for j in range(self._d):
                 perm_scores = np.zeros(n_permutations, dtype=float)
-                
+
                 for p in range(n_permutations):
                     Xp = X.copy()
-                    
+
                     if perm_mode == "iid":
                         # Standard permutation
                         rng.shuffle(Xp[:, j])
@@ -1523,7 +1523,7 @@ class RashomonSet:
                         residual_j = X[:, j] - pred_minus_j / (theta_s[j] + 1e-12)
                         residual_j_perm = residual_j.copy()
                         rng.shuffle(residual_j_perm)
-                        Xp[:, j] = residual_j_perm
+                        Xp[:, j] = residual_j_perm + pred_minus_j / (theta_s[j] + 1e-12)
                     elif perm_mode == "conditional":
                         # Conditional permutation (simplified: bin-based)
                         # Bin samples by correlated features and permute within bins
@@ -1537,7 +1537,7 @@ class RashomonSet:
                                 Xp[mask, j] = rng.permutation(Xp[mask, j])
                     else:
                         raise ValueError(f"Unknown perm_mode: {perm_mode}")
-                    
+
                     # Score with permuted feature
                     if self.estimator == "logistic":
                         scores_p = Xp @ theta_s
@@ -1547,18 +1547,18 @@ class RashomonSet:
                         preds_p = Xp @ theta_s
                         ss_res_p = float(np.sum((y - preds_p) ** 2))
                         score_p = 1.0 - ss_res_p / ss_tot if ss_tot > 0 else 1.0
-                    
+
                     perm_scores[p] = base - score_p
-                
+
                 importance_matrix[s_idx, j] = float(np.mean(perm_scores))
-        
+
         # Aggregate across samples
         mean_importance = np.mean(importance_matrix, axis=0)
         std_importance = np.std(importance_matrix, axis=0)
-        
+
         # Compute base score on original parameter
         base_score = self.score(X, y)
-        
+
         return {
             "feature_importance": mean_importance,
             "importance_std": std_importance,
@@ -1567,8 +1567,385 @@ class RashomonSet:
             "collinearity_warning": collinear_pairs if collinear_pairs else None,
         }
 
-    def multiplicity(self, which: Any = ("ambiguity", "discrepancy")) -> Any:
-        raise NotImplementedError
+    def compute_threshold(
+        self,
+        y: Array,
+        mode: str = "fixed",
+        value: float | None = None,
+        **kwargs: Any,
+    ) -> float:
+        """Compute decision threshold for binary classification.
+
+        Parameters
+        ----------
+        y : Array
+            Training labels (needed for prevalence/base-rate).
+        mode : str, default="fixed"
+            Threshold selection mode:
+            - "fixed": use provided value (default 0.5 for logit 0)
+            - "match_prevalence": threshold that matches empirical prevalence
+            - "match_fpr": threshold for target false positive rate (requires fpr= kwarg)
+            - "youden": maximize Youden's J statistic (requires X_val, y_val kwargs)
+        value : float, optional
+            Value for "fixed" mode. If None, uses 0.5 (logit 0).
+
+        Returns
+        -------
+        threshold : float
+            Decision threshold in margin space (x^T theta).
+
+        Examples
+        --------
+        >>> rs.compute_threshold(y, mode="fixed", value=0.5)
+        0.0
+        >>> rs.compute_threshold(y, mode="match_prevalence")
+        -0.123
+        """
+        if self.estimator != "logistic":
+            raise ValueError("Thresholds only applicable to logistic regression")
+        if not self._fitted or self._theta_hat is None:
+            raise RuntimeError("Call fit() first")
+
+        if mode == "fixed":
+            if value is None:
+                value = 0.5  # logit(0.5) = 0
+            # Convert probability threshold to margin (logit)
+            if value <= 0.0 or value >= 1.0:
+                raise ValueError("Fixed threshold must be in (0, 1)")
+            return float(np.log(value / (1.0 - value)))
+
+        elif mode == "match_prevalence":
+            # Set threshold so predicted prevalence matches empirical
+            prevalence = float(np.mean(y))
+            if prevalence <= 0.0 or prevalence >= 1.0:
+                warnings.warn(
+                    f"Prevalence {prevalence:.3f} at boundary; using fixed 0.5",
+                    stacklevel=2,
+                )
+                return 0.0
+            return float(np.log(prevalence / (1.0 - prevalence)))
+
+        elif mode == "match_fpr":
+            # Requires validation data to estimate threshold for target FPR
+            fpr_target = kwargs.get("fpr", 0.05)
+            X_val = kwargs.get("X_val")
+            y_val = kwargs.get("y_val")
+            if X_val is None or y_val is None:
+                raise ValueError("match_fpr mode requires X_val and y_val kwargs")
+
+            # Use theta_hat to find threshold achieving target FPR
+            margins = self.decision_function(X_val)
+            negatives = y_val == 0
+            if np.sum(negatives) == 0:
+                warnings.warn("No negative examples; using fixed threshold", stacklevel=2)
+                return 0.0
+
+            # Sort margins of negatives and pick threshold
+            neg_margins = np.sort(margins[negatives])
+            idx = int((1.0 - fpr_target) * len(neg_margins))
+            idx = max(0, min(idx, len(neg_margins) - 1))
+            return float(neg_margins[idx])
+
+        elif mode == "youden":
+            # Maximize Youden's J = sensitivity + specificity - 1
+            X_val = kwargs.get("X_val")
+            y_val = kwargs.get("y_val")
+            if X_val is None or y_val is None:
+                raise ValueError("youden mode requires X_val and y_val kwargs")
+
+            margins = self.decision_function(X_val)
+            # Grid search over possible thresholds
+            thresholds = np.percentile(margins, np.linspace(1, 99, 99))
+            best_j, best_tau = -np.inf, 0.0
+            for tau_val in np.atleast_1d(thresholds):
+                preds = margins >= tau_val
+                tp: int = int(np.sum((preds == 1) & (y_val == 1)))
+                tn: int = int(np.sum((preds == 0) & (y_val == 0)))
+                fp: int = int(np.sum((preds == 1) & (y_val == 0)))
+                fn: int = int(np.sum((preds == 0) & (y_val == 1)))
+                sens = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+                spec = tn / (tn + fp) if (tn + fp) > 0 else 0.0
+                j = sens + spec - 1.0
+                if j > best_j:
+                    best_j = j
+                    best_tau = float(tau_val)
+            return best_tau
+
+        else:
+            raise ValueError(f"Unknown threshold mode: {mode}")
+
+    def ambiguity(
+        self,
+        X: Array,
+        threshold_mode: str = "fixed",
+        threshold_value: float | None = None,
+        y: Array | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Compute ambiguity: fraction of instances with label disagreement across Rashomon set.
+
+        For binary classification, an instance is ambiguous if its margin interval
+        [m_min, m_max] straddles the decision threshold τ. This indicates that some
+        models in the Rashomon set would classify it as 0, and others as 1.
+
+        Margin interval: m_i^{min/max} = x_i^T θ_hat ± sqrt(2ε) ||x_i||_{H^{-1}}
+
+        Parameters
+        ----------
+        X : Array, shape (n, d)
+            Data matrix.
+        threshold_mode : str, default="fixed"
+            How to compute decision threshold: "fixed", "match_prevalence", etc.
+        threshold_value : float, optional
+            Value for fixed mode (default 0.5 = logit 0).
+        y : Array, optional
+            Labels (required for some threshold modes).
+        **kwargs
+            Additional arguments for threshold computation.
+
+        Returns
+        -------
+        result : dict
+            - "ambiguity_rate": fraction of ambiguous instances
+            - "n_ambiguous": count of ambiguous instances
+            - "threshold": decision threshold used (in margin space)
+            - "ambiguous_indices": indices of ambiguous instances
+
+        References
+        ----------
+        Fisher, Rudin, Dominici (2019). "All Models are Wrong, but Many are Useful."
+
+        Examples
+        --------
+        >>> amb = rs.ambiguity(X_test, threshold_mode="fixed", threshold_value=0.5)
+        >>> print(f"Ambiguity rate: {amb['ambiguity_rate']:.2%}")
+        """
+        if not self._fitted or self._theta_hat is None or self._epsilon_value is None:
+            raise RuntimeError("Call fit() first")
+
+        X = np.asarray(X)
+        n = X.shape[0]
+
+        # Compute threshold
+        if y is None and threshold_mode != "fixed":
+            raise ValueError(f"Threshold mode '{threshold_mode}' requires y")
+        y_for_threshold = y if y is not None else np.zeros(1)
+        tau = self.compute_threshold(y_for_threshold, threshold_mode, threshold_value, **kwargs)
+
+        # Compute margin intervals for each instance
+        ambiguous = []
+        for i in range(n):
+            interval = self.hacking_interval(X[i])
+            m_min, m_max = interval["min"], interval["max"]
+            # Instance is ambiguous if interval straddles threshold
+            if m_min <= tau <= m_max:
+                ambiguous.append(i)
+
+        n_ambiguous = len(ambiguous)
+        ambiguity_rate = n_ambiguous / n if n > 0 else 0.0
+
+        return {
+            "ambiguity_rate": ambiguity_rate,
+            "n_ambiguous": n_ambiguous,
+            "threshold": tau,
+            "ambiguous_indices": np.array(ambiguous, dtype=int),
+        }
+
+    def discrepancy(
+        self,
+        X: Array,
+        samples: Array | None = None,
+        n_samples: int = 100,
+        n_pairs: int = 50,
+        threshold_mode: str = "fixed",
+        threshold_value: float | None = None,
+        y: Array | None = None,
+        random_state: int | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Compute discrepancy: max disagreement rate between models in Rashomon set.
+
+        Discrepancy measures the worst-case fraction of instances on which two models
+        disagree. We compute:
+        1. Upper bound via margin intervals (how many intervals straddle threshold)
+        2. Empirical estimate via sampled model pairs
+
+        Parameters
+        ----------
+        X : Array, shape (n, d)
+            Data matrix.
+        samples : Array, optional
+            Pre-computed parameter samples, shape (n_samples, d).
+            If None, will sample using default method.
+        n_samples : int, default=100
+            Number of samples to draw if samples not provided.
+        n_pairs : int, default=50
+            Number of random pairs to evaluate for empirical estimate.
+        threshold_mode : str, default="fixed"
+            Threshold selection mode.
+        threshold_value : float, optional
+            Value for fixed threshold mode.
+        y : Array, optional
+            Labels (required for some threshold modes).
+        random_state : int, optional
+            Random seed.
+        **kwargs
+            Additional arguments for threshold computation.
+
+        Returns
+        -------
+        result : dict
+            - "discrepancy_bound": upper bound on max disagreement rate
+            - "discrepancy_empirical": empirical estimate from sampled pairs
+            - "max_pair_disagreement": maximum observed disagreement
+            - "mean_pair_disagreement": average disagreement across pairs
+            - "threshold": decision threshold used
+
+        Examples
+        --------
+        >>> disc = rs.discrepancy(X_test, n_samples=200, n_pairs=100)
+        >>> print(f"Discrepancy bound: {disc['discrepancy_bound']:.2%}")
+        >>> print(f"Empirical estimate: {disc['discrepancy_empirical']:.2%}")
+        """
+        if not self._fitted or self._theta_hat is None or self._epsilon_value is None:
+            raise RuntimeError("Call fit() first")
+
+        X = np.asarray(X)
+        n = X.shape[0]
+        rng = np.random.default_rng(random_state)
+
+        # Compute threshold
+        if y is None and threshold_mode != "fixed":
+            raise ValueError(f"Threshold mode '{threshold_mode}' requires y")
+        y_for_threshold = y if y is not None else np.zeros(1)
+        tau = self.compute_threshold(y_for_threshold, threshold_mode, threshold_value, **kwargs)
+
+        # Upper bound: count instances with margin interval straddling threshold
+        n_straddle = 0
+        for i in range(n):
+            interval = self.hacking_interval(X[i])
+            m_min, m_max = interval["min"], interval["max"]
+            if m_min <= tau <= m_max:
+                n_straddle += 1
+
+        discrepancy_bound = n_straddle / n if n > 0 else 0.0
+
+        # Empirical estimate: sample pairs and compute disagreement
+        if samples is None:
+            samples = self.sample(n_samples, random_state=random_state)
+
+        if len(samples) < 2:
+            warnings.warn("Need at least 2 samples for empirical discrepancy", stacklevel=2)
+            return {
+                "discrepancy_bound": discrepancy_bound,
+                "discrepancy_empirical": None,
+                "max_pair_disagreement": None,
+                "mean_pair_disagreement": None,
+                "threshold": tau,
+            }
+
+        # Compute predictions for all samples
+        margins = X @ samples.T  # shape (n, n_samples)
+        preds = (margins >= tau).astype(int)  # shape (n, n_samples)
+
+        # Sample pairs and compute disagreement rates
+        disagreements = []
+        for _ in range(n_pairs):
+            i, j = rng.choice(len(samples), size=2, replace=False)
+            disagreement_rate = float(np.mean(preds[:, i] != preds[:, j]))
+            disagreements.append(disagreement_rate)
+
+        max_disagreement = float(np.max(disagreements))
+        mean_disagreement = float(np.mean(disagreements))
+
+        return {
+            "discrepancy_bound": discrepancy_bound,
+            "discrepancy_empirical": mean_disagreement,
+            "max_pair_disagreement": max_disagreement,
+            "mean_pair_disagreement": mean_disagreement,
+            "threshold": tau,
+        }
+
+    def multiplicity(
+        self,
+        X: Array,
+        which: tuple[str, ...] | list[str] = ("ambiguity", "discrepancy"),
+        y: Array | None = None,
+        samples: Array | None = None,
+        n_samples: int = 100,
+        threshold_mode: str = "fixed",
+        threshold_value: float | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Compute predictive multiplicity metrics.
+
+        Unified interface for ambiguity, discrepancy, and other multiplicity measures.
+
+        Parameters
+        ----------
+        X : Array
+            Data matrix.
+        which : tuple or list, default=("ambiguity", "discrepancy")
+            Which metrics to compute. Options: "ambiguity", "discrepancy", "capacity" (future).
+        y : Array, optional
+            Labels (required for some threshold modes).
+        samples : Array, optional
+            Pre-computed parameter samples.
+        n_samples : int, default=100
+            Number of samples if not provided.
+        threshold_mode : str, default="fixed"
+            Threshold selection mode.
+        threshold_value : float, optional
+            Fixed threshold value.
+        **kwargs
+            Additional arguments passed to individual metric functions.
+
+        Returns
+        -------
+        metrics : dict
+            Dictionary with keys corresponding to requested metrics.
+
+        Examples
+        --------
+        >>> mult = rs.multiplicity(
+        ...     X_test, which=["ambiguity", "discrepancy"],
+        ...     threshold_mode="match_prevalence", y=y_test
+        ... )
+        >>> print(f"Ambiguity: {mult['ambiguity']['ambiguity_rate']:.2%}")
+        >>> print(f"Discrepancy: {mult['discrepancy']['discrepancy_bound']:.2%}")
+        """
+        result = {}
+
+        for metric in which:
+            if metric == "ambiguity":
+                result["ambiguity"] = self.ambiguity(
+                    X,
+                    threshold_mode=threshold_mode,
+                    threshold_value=threshold_value,
+                    y=y,
+                    **kwargs,
+                )
+            elif metric == "discrepancy":
+                result["discrepancy"] = self.discrepancy(
+                    X,
+                    samples=samples,
+                    n_samples=n_samples,
+                    threshold_mode=threshold_mode,
+                    threshold_value=threshold_value,
+                    y=y,
+                    **kwargs,
+                )
+            elif metric == "capacity":
+                # Placeholder for future Rashomon capacity implementation (E26)
+                warnings.warn("Capacity metric not yet implemented", stacklevel=2)
+                result["capacity"] = {
+                    "capacity": None,
+                    "note": "Not yet implemented - see issue E26",
+                }
+            else:
+                warnings.warn(f"Unknown multiplicity metric: {metric}", stacklevel=2)
+
+        return result
 
 
 def _detect_blas_vendor() -> Optional[str]:

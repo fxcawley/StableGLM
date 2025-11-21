@@ -1,4 +1,5 @@
 import numpy as np
+
 from rashomon import RashomonSet
 
 
@@ -214,7 +215,7 @@ def test_coef_intervals_and_sampler_membership():
     samp = rs.sample_ellipsoid(n_samples=20)
     H = rs._hessian_matrix()
     dtheta = samp - rs.coef_
-    qvals = np.einsum('ni,ij,nj->n', dtheta, H, dtheta)
+    qvals = np.einsum("ni,ij,nj->n", dtheta, H, dtheta)
     eps = rs.diagnostics()["epsilon"]
     assert np.all(qvals <= 2.0 * float(eps) + 1e-8)
 
