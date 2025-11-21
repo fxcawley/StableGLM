@@ -1324,7 +1324,7 @@ class RashomonSet:
         matplotlib Figure and Axes objects.
         """
         try:
-            import matplotlib.pyplot as plt
+            from .plotting import plot_vic
         except ImportError:
             raise ImportError("matplotlib is required for plotting. Install via: pip install matplotlib")
 
@@ -1336,74 +1336,125 @@ class RashomonSet:
                 **kwargs,
             )
 
-        samples = vic_result["samples"]
-        names = vic_result["feature_names"]
-        intervals = vic_result["intervals"]
-        mean = vic_result["mean"]
-
-        d = samples.shape[1]
-
-        # Create figure
-        if figsize is None:
-            figsize = (min(12, max(8, d * 1.2)), 6)
-        fig, ax = plt.subplots(figsize=figsize)
-
-        # Violin or box plots for each feature
-        positions = np.arange(d)
-        parts = ax.violinplot(
-            [samples[:, j] for j in range(d)],
-            positions=positions,
-            widths=0.7,
-            showmeans=False,
-            showmedians=False,
+        return plot_vic(
+            vic_result,
+            theta_hat=self._theta_hat if show_theta_hat else None,
+            figsize=figsize
         )
 
-        # Color violins
-        for pc in parts["bodies"]:
-            pc.set_facecolor("#8dd3c7")
-            pc.set_alpha(0.7)
-            pc.set_edgecolor("black")
-            pc.set_linewidth(1)
+    def plot_ambiguity(
+        self,
+        X: Array,
+        threshold_mode: str = "fixed",
+        threshold_value: float | None = None,
+        y: Array | None = None,
+        figsize: Optional[tuple] = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Plot predictive ambiguity distribution.
+        
+        Parameters
+        ----------
+        X : Array
+            Data to evaluate.
+        threshold_mode : str
+            Threshold selection mode.
+        threshold_value : float
+            Value for fixed threshold.
+        y : Array
+            Labels (optional).
+        figsize : tuple
+            Figure size.
+        
+        Returns
+        -------
+        fig, ax
+        """
+        try:
+            from .plotting import plot_ambiguity
+        except ImportError:
+            raise ImportError("matplotlib is required for plotting")
 
-        # Add mean markers
-        ax.scatter(positions, mean, color="red", s=60, zorder=3, label="Mean", marker="D")
-
-        # Add theta_hat if requested
-        if show_theta_hat and self._theta_hat is not None:
-            ax.scatter(
-                positions,
-                self._theta_hat,
-                color="blue",
-                s=80,
-                zorder=4,
-                label="θ̂ (optimal)",
-                marker="*",
-            )
-
-        # Add 90% intervals as error bars
-        ax.errorbar(
-            positions,
-            mean,
-            yerr=[mean - intervals[:, 0], intervals[:, 1] - mean],
-            fmt="none",
-            ecolor="gray",
-            alpha=0.5,
-            capsize=3,
-            label="90% interval",
+        # Compute margins
+        margins = self.decision_function(X)
+        
+        # Compute threshold and ambiguous set
+        amb_result = self.ambiguity(
+            X, threshold_mode, threshold_value, y, **kwargs
+        )
+        
+        return plot_ambiguity(
+            margins,
+            threshold=amb_result["threshold"],
+            ambiguous_indices=amb_result["ambiguous_indices"],
+            figsize=figsize
         )
 
-        # Styling
-        ax.set_xticks(positions)
-        ax.set_xticklabels(names, rotation=45, ha="right")
-        ax.set_ylabel("Coefficient Value")
-        ax.set_xlabel("Feature")
-        ax.set_title("Variable Importance Cloud (VIC)")
-        ax.axhline(0, color="black", linestyle="--", linewidth=0.8, alpha=0.5)
-        ax.legend(loc="best")
-        ax.grid(True, alpha=0.3, axis="y")
+    def plot_discrepancy(
+        self,
+        X: Array,
+        samples: Array | None = None,
+        n_samples: int = 50,
+        n_pairs: int = 100,
+        threshold_mode: str = "fixed",
+        threshold_value: float | None = None,
+        y: Array | None = None,
+        figsize: Optional[tuple] = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Plot pairwise discrepancy heatmap.
+        
+        Parameters
+        ----------
+        X : Array
+            Data matrix.
+        samples : Array, optional
+            Pre-computed samples.
+        n_samples : int
+            Number of samples to draw.
+        n_pairs : int
+            Number of pairs (not used for heatmap, used for metric).
+        threshold_mode : str
+            Threshold selection mode.
+        y : Array
+            Labels.
+        figsize : tuple
+            Figure size.
+        
+        Returns
+        -------
+        fig, ax
+        """
+        try:
+            from .plotting import plot_discrepancy
+        except ImportError:
+            raise ImportError("matplotlib is required for plotting")
 
-        plt.tight_layout()
-        return fig, ax
+        if not self._fitted:
+            raise RuntimeError("Call fit() first")
+
+        X = np.asarray(X)
+        
+        # 1. Get samples
+        if samples is None:
+            samples = self.sample(n_samples)
+        else:
+            n_samples = len(samples)
+            
+        # 2. Compute predictions
+        tau = self.compute_threshold(y if y is not None else np.zeros(1), threshold_mode, threshold_value, **kwargs)
+        margins = X @ samples.T
+        preds = (margins >= tau).astype(int)
+        
+        # 3. Compute pairwise discrepancy matrix
+        disc_matrix = np.zeros((n_samples, n_samples))
+        for i in range(n_samples):
+            for j in range(i + 1, n_samples):
+                d = float(np.mean(preds[:, i] != preds[:, j]))
+                disc_matrix[i, j] = d
+                disc_matrix[j, i] = d
+        
+        return plot_discrepancy(disc_matrix, figsize=figsize)
 
     # ------------------------------ Placeholders ----------------------------
     def variable_importance(self, mode: str = "VIC") -> Any:
