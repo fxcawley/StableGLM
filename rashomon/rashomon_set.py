@@ -1201,19 +1201,261 @@ class RashomonSet:
             "ess_per_param": ess_per_param,
         }
     
+    # ----------------------------- VIC (E20) --------------------------------
+    def variable_importance_cloud(
+        self,
+        *,
+        n_samples: int = 200,
+        sampler: Optional[str] = None,
+        feature_names: Optional[list] = None,
+        burnin: int = 100,
+        thin: int = 2,
+        random_state: Optional[int] = None,
+    ) -> Dict[str, Array]:
+        """Compute Variable Importance Cloud (VIC) for coefficients.
+        
+        VIC characterizes the distribution of coefficients across the Rashomon
+        set, providing insight into feature importance uncertainty.
+        
+        Parameters
+        ----------
+        n_samples : int
+            Number of parameter samples to draw.
+        sampler : Optional[str]
+            Sampler to use ("ellipsoid" or "hitandrun"). Defaults to self.sampler.
+        feature_names : Optional[list]
+            Names for features (used in plotting). If None, uses indices.
+        burnin : int
+            Burn-in for Hit-and-Run sampler (ignored for ellipsoid).
+        thin : int
+            Thinning for Hit-and-Run sampler (ignored for ellipsoid).
+        random_state : Optional[int]
+            Random seed for sampling.
+        
+        Returns
+        -------
+        dict with keys:
+            - 'samples': array of shape (n_samples, d) - parameter samples
+            - 'mean': array of shape (d,) - mean coefficients
+            - 'std': array of shape (d,) - std of coefficients
+            - 'quantiles': dict with keys (0.05, 0.25, 0.5, 0.75, 0.95)
+            - 'intervals': array of shape (d, 2) - 90% intervals
+            - 'feature_names': list of feature names
+        """
+        if not self._fitted:
+            raise RuntimeError("Call fit() first.")
+        
+        # Determine sampler
+        backend = sampler if sampler is not None else self.sampler
+        
+        # Generate samples
+        seed = self._seed if random_state is None else int(random_state)
+        if backend.lower() == "ellipsoid":
+            samples = self.sample_ellipsoid(n_samples=n_samples, random_state=seed)
+        elif backend.lower() == "hitandrun":
+            samples = self.sample_hitandrun(
+                n_samples=n_samples,
+                burnin=burnin,
+                thin=thin,
+                random_state=seed,
+                compute_diagnostics=False,
+            )
+        else:
+            raise ValueError(f"Unknown sampler: {backend}")
+        
+        # Compute statistics
+        mean = np.mean(samples, axis=0)
+        std = np.std(samples, axis=0)
+        
+        # Quantiles
+        quantiles = {}
+        for q in [0.05, 0.25, 0.5, 0.75, 0.95]:
+            quantiles[q] = np.quantile(samples, q, axis=0)
+        
+        # 90% intervals
+        intervals = np.stack([quantiles[0.05], quantiles[0.95]], axis=1)
+        
+        # Feature names
+        if feature_names is None:
+            names = [f"feature_{i}" for i in range(self._d)]
+        else:
+            if len(feature_names) != self._d:
+                raise ValueError(f"feature_names must have length d={self._d}")
+            names = list(feature_names)
+        
+        return {
+            "samples": samples,
+            "mean": mean,
+            "std": std,
+            "quantiles": quantiles,
+            "intervals": intervals,
+            "feature_names": names,
+        }
+    
+    def plot_vic(
+        self,
+        vic_result: Optional[Dict[str, Any]] = None,
+        *,
+        n_samples: int = 200,
+        feature_names: Optional[list] = None,
+        figsize: Optional[tuple] = None,
+        show_theta_hat: bool = True,
+        **kwargs: Any,
+    ) -> Any:
+        """Plot Variable Importance Cloud (coefficient distributions).
+        
+        Parameters
+        ----------
+        vic_result : Optional[dict]
+            Pre-computed VIC result. If None, computes internally.
+        n_samples : int
+            Number of samples if computing VIC internally.
+        feature_names : Optional[list]
+            Feature names for axis labels.
+        figsize : Optional[tuple]
+            Figure size (width, height).
+        show_theta_hat : bool
+            If True, show optimal theta_hat as reference.
+        **kwargs
+            Additional arguments for variable_importance_cloud().
+        
+        Returns
+        -------
+        matplotlib Figure and Axes objects.
+        """
+        try:
+            import matplotlib.pyplot as plt
+        except ImportError:
+            raise ImportError("matplotlib is required for plotting. Install via: pip install matplotlib")
+        
+        # Compute VIC if not provided
+        if vic_result is None:
+            vic_result = self.variable_importance_cloud(
+                n_samples=n_samples,
+                feature_names=feature_names,
+                **kwargs,
+            )
+        
+        samples = vic_result["samples"]
+        names = vic_result["feature_names"]
+        intervals = vic_result["intervals"]
+        mean = vic_result["mean"]
+        
+        d = samples.shape[1]
+        
+        # Create figure
+        if figsize is None:
+            figsize = (min(12, max(8, d * 1.2)), 6)
+        fig, ax = plt.subplots(figsize=figsize)
+        
+        # Violin or box plots for each feature
+        positions = np.arange(d)
+        parts = ax.violinplot(
+            [samples[:, j] for j in range(d)],
+            positions=positions,
+            widths=0.7,
+            showmeans=False,
+            showmedians=False,
+        )
+        
+        # Color violins
+        for pc in parts["bodies"]:
+            pc.set_facecolor("#8dd3c7")
+            pc.set_alpha(0.7)
+            pc.set_edgecolor("black")
+            pc.set_linewidth(1)
+        
+        # Add mean markers
+        ax.scatter(positions, mean, color="red", s=60, zorder=3, label="Mean", marker="D")
+        
+        # Add theta_hat if requested
+        if show_theta_hat and self._theta_hat is not None:
+            ax.scatter(
+                positions,
+                self._theta_hat,
+                color="blue",
+                s=80,
+                zorder=4,
+                label="θ̂ (optimal)",
+                marker="*",
+            )
+        
+        # Add 90% intervals as error bars
+        ax.errorbar(
+            positions,
+            mean,
+            yerr=[mean - intervals[:, 0], intervals[:, 1] - mean],
+            fmt="none",
+            ecolor="gray",
+            alpha=0.5,
+            capsize=3,
+            label="90% interval",
+        )
+        
+        # Styling
+        ax.set_xticks(positions)
+        ax.set_xticklabels(names, rotation=45, ha="right")
+        ax.set_ylabel("Coefficient Value")
+        ax.set_xlabel("Feature")
+        ax.set_title("Variable Importance Cloud (VIC)")
+        ax.axhline(0, color="black", linestyle="--", linewidth=0.8, alpha=0.5)
+        ax.legend(loc="best")
+        ax.grid(True, alpha=0.3, axis="y")
+        
+        plt.tight_layout()
+        return fig, ax
+    
     # ------------------------------ Placeholders ----------------------------
     def variable_importance(self, mode: str = "VIC") -> Any:
-        raise NotImplementedError
+        """Legacy method - use variable_importance_cloud() instead."""
+        if mode.upper() == "VIC":
+            return self.variable_importance_cloud()
+        raise NotImplementedError(f"Mode '{mode}' not implemented")
 
-    def model_class_reliance(self, X: Array, y: Array, n_permutations: int = 16, random_state: Optional[int] = None) -> Dict[str, Array]:
-        """Permutation-based model class reliance (MCR).
+    def model_class_reliance(
+        self,
+        X: Array,
+        y: Array,
+        *,
+        n_permutations: int = 16,
+        n_samples: int = 100,
+        perm_mode: str = "iid",
+        check_collinearity: bool = True,
+        random_state: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Enhanced Model Class Reliance (MCR) with correlation-aware permutations (E22).
 
-        For each feature j, compute the change in score when column j is
-        permuted across samples, averaged over n_permutations. Returns a
-        dictionary with arrays per family: accuracy drop (logistic) or R^2 drop (linear).
+        Computes feature importance by measuring performance degradation under
+        permutation, averaged across the Rashomon set. Supports multiple
+        permutation modes to handle correlated features.
 
-        This is a simple baseline to identify informative features and does not
-        account for correlation structures.
+        Parameters
+        ----------
+        X : array of shape (n, d)
+            Feature matrix.
+        y : array of shape (n,)
+            Target vector.
+        n_permutations : int
+            Number of permutation replicates per feature.
+        n_samples : int
+            Number of parameter samples from Rashomon set.
+        perm_mode : str
+            Permutation strategy:
+            - "iid": independent permutation (baseline)
+            - "residual": permute residuals from linear predictor (correlation-aware)
+            - "conditional": permute within bins of correlated features (experimental)
+        check_collinearity : bool
+            If True, warn when features are highly correlated.
+        random_state : Optional[int]
+            Random seed.
+
+        Returns
+        -------
+        dict with keys:
+            - 'feature_importance': array of shape (d,) - mean importance
+            - 'importance_std': array of shape (d,) - std across samples
+            - 'base_score': float - baseline score on unpermuted data
+            - 'collinearity_warning': Optional[list] - pairs of correlated features
         """
         if not self._fitted:
             raise RuntimeError("Call fit() first.")
@@ -1221,17 +1463,109 @@ class RashomonSet:
         y = np.asarray(y)
         if X.ndim != 2 or X.shape[1] != self._d:
             raise ValueError("X must be 2D with d features")
-        base = self.score(X, y)
-        rng = np.random.default_rng(self._seed if random_state is None else int(random_state))
-        drops = np.zeros(self._d, dtype=float)
-        for j in range(self._d):
-            vals = np.zeros(n_permutations, dtype=float)
-            for b in range(n_permutations):
-                Xp = X.copy()
-                rng.shuffle(Xp[:, j])
-                vals[b] = base - self.score(Xp, y)
-            drops[j] = float(np.mean(vals))
-        return {"feature_importance": drops}
+        
+        seed = self._seed if random_state is None else int(random_state)
+        rng = np.random.default_rng(seed)
+        
+        # Check for collinearity
+        collinear_pairs = []
+        if check_collinearity and X.shape[0] >= self._d:
+            try:
+                corr_matrix = np.corrcoef(X, rowvar=False)
+                for i in range(self._d):
+                    for j in range(i + 1, self._d):
+                        if abs(corr_matrix[i, j]) > 0.85:
+                            collinear_pairs.append((i, j, corr_matrix[i, j]))
+                if collinear_pairs:
+                    warnings.warn(
+                        f"High collinearity detected: {len(collinear_pairs)} pairs. "
+                        "Consider using perm_mode='residual' or 'conditional'."
+                    )
+            except Exception:
+                pass
+        
+        # Sample parameters from Rashomon set
+        samples = self.sample_ellipsoid(n_samples=n_samples, random_state=seed)
+        
+        # Compute importance for each sampled parameter
+        importance_matrix = np.zeros((n_samples, self._d), dtype=float)
+        
+        for s_idx in range(n_samples):
+            theta_s = samples[s_idx]
+            
+            # Base score with this parameter
+            if self.estimator == "logistic":
+                scores = X @ theta_s
+                preds = (scores > 0.0).astype(int)
+                base = float(np.mean((preds == y.astype(int)).astype(float)))
+            else:
+                preds = X @ theta_s
+                ss_res = float(np.sum((y - preds) ** 2))
+                y_mean = float(np.mean(y))
+                ss_tot = float(np.sum((y - y_mean) ** 2))
+                base = 1.0 - ss_res / ss_tot if ss_tot > 0 else 1.0
+            
+            # Permutation importance for each feature
+            for j in range(self._d):
+                perm_scores = np.zeros(n_permutations, dtype=float)
+                
+                for p in range(n_permutations):
+                    Xp = X.copy()
+                    
+                    if perm_mode == "iid":
+                        # Standard permutation
+                        rng.shuffle(Xp[:, j])
+                    elif perm_mode == "residual":
+                        # Permute residuals from prediction without feature j
+                        theta_minus_j = theta_s.copy()
+                        theta_minus_j[j] = 0.0
+                        pred_minus_j = X @ theta_minus_j
+                        residual_j = X[:, j] - pred_minus_j / (theta_s[j] + 1e-12)
+                        residual_j_perm = residual_j.copy()
+                        rng.shuffle(residual_j_perm)
+                        Xp[:, j] = residual_j_perm
+                    elif perm_mode == "conditional":
+                        # Conditional permutation (simplified: bin-based)
+                        # Bin samples by correlated features and permute within bins
+                        n_bins = max(3, int(np.sqrt(X.shape[0])))
+                        # Use mean of other features for binning
+                        other_mean = np.mean(np.delete(X, j, axis=1), axis=1)
+                        bins = np.digitize(other_mean, np.linspace(other_mean.min(), other_mean.max(), n_bins))
+                        for b in range(1, n_bins + 1):
+                            mask = bins == b
+                            if np.sum(mask) > 1:
+                                Xp[mask, j] = rng.permutation(Xp[mask, j])
+                    else:
+                        raise ValueError(f"Unknown perm_mode: {perm_mode}")
+                    
+                    # Score with permuted feature
+                    if self.estimator == "logistic":
+                        scores_p = Xp @ theta_s
+                        preds_p = (scores_p > 0.0).astype(int)
+                        score_p = float(np.mean((preds_p == y.astype(int)).astype(float)))
+                    else:
+                        preds_p = Xp @ theta_s
+                        ss_res_p = float(np.sum((y - preds_p) ** 2))
+                        score_p = 1.0 - ss_res_p / ss_tot if ss_tot > 0 else 1.0
+                    
+                    perm_scores[p] = base - score_p
+                
+                importance_matrix[s_idx, j] = float(np.mean(perm_scores))
+        
+        # Aggregate across samples
+        mean_importance = np.mean(importance_matrix, axis=0)
+        std_importance = np.std(importance_matrix, axis=0)
+        
+        # Compute base score on original parameter
+        base_score = self.score(X, y)
+        
+        return {
+            "feature_importance": mean_importance,
+            "importance_std": std_importance,
+            "importance_matrix": importance_matrix,
+            "base_score": base_score,
+            "collinearity_warning": collinear_pairs if collinear_pairs else None,
+        }
 
     def multiplicity(self, which: Any = ("ambiguity", "discrepancy")) -> Any:
         raise NotImplementedError
