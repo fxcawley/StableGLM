@@ -46,7 +46,7 @@ target-version = "py39"
 select = [
   "E", "F", "I", "UP", "B", "PIE", "Q", "W"
 ]
-ignore = []
+ignore = ["E501"]
 src = ["rashomon", "tests", "scripts"]
 
 [tool.ruff.isort]
