@@ -35,6 +35,7 @@ jobs:
       - name: Build docs
         run: |
           sphinx-build -b html docs docs/_build/html
+          touch docs/_build/html/.nojekyll
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:

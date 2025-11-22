@@ -11,6 +11,5 @@ guide/quickstart
 examples/tutorial
 guide/overview
 api/reference
-project_plan
 reproducibility
 ```
