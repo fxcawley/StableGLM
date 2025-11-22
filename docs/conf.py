@@ -13,11 +13,15 @@ copyright = f"{year}, {author}"
 extensions = [
     "myst_parser",
     "sphinx.ext.autodoc",
+    "sphinx.ext.napoleon",
+    "sphinx.ext.viewcode",
+    "sphinx.ext.mathjax",
 ]
 
 myst_enable_extensions = [
     "dollarmath",
     "amsmath",
+    "colon_fence",
 ]
 
 autodoc_default_options = {
