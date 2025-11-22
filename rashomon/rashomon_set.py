@@ -166,7 +166,37 @@ class _MembershipOracle:
 
 
 class RashomonSet:
-    """Sklearn-style interface for Rashomon-GLM (v0 functional skeleton).
+    """
+    The Rashomon Set for Generalized Linear Models (GLMs).
+
+    The Rashomon set is the set of all models that perform "approximately as well" as the
+    optimal model, within a user-defined tolerance epsilon. Exploring this set allows
+    practitioners to understand the **predictive multiplicity** of their problem: the existence
+    of competing models that make conflicting predictions for the same input.
+
+    This class provides a unified interface to:
+
+    1.  **Define** the Rashomon set using the likelihood ratio or loss approximations.
+    2.  **Sample** from the set using efficient MCMC methods (Ellipsoid, Hit-and-Run).
+    3.  **Analyze** the set using diagnostics like Variable Importance Clouds (VIC),
+        Model Class Reliance (MCR), and Predictive Multiplicity metrics (Ambiguity, Discrepancy).
+
+    **Key Contributions:**
+
+    -   **Efficient Sampling**: Implements geometry-aware sampling (Hessian-based) to explore the
+        Rashomon set efficiently, even in moderate dimensions.
+    -   **Predictive Multiplicity**: Quantifies how much predictions vary across the set of "good" models.
+    -   **Variable Importance Stability**: visualizing the "cloud" of possible coefficients (VIC) rather
+        than just a point estimate.
+
+    **When to use this:**
+
+    -   **High-Stakes Decisions**: When model decisions affect people (e.g., credit, medical), checking
+        multiplicity is crucial for robustness and fairness.
+    -   **Feature Selection**: To identify features that are consistently important versus those that
+        can be swapped out without performance loss.
+    -   **Robustness Checks**: To ensure your conclusions aren't artifacts of a specific random seed
+        or slight data perturbation.
 
     Parameters
     ----------
@@ -177,12 +207,14 @@ class RashomonSet:
     C : float
         Inverse regularization strength (sklearn semantics). lambda = 1/C.
     epsilon : float
-        If epsilon_mode == "percent_loss": interpreted as rho in (0,1).
-        If epsilon_mode == "LR_alpha": interpreted as alpha in (0,1).
+        Tolerance parameter.
+        - If epsilon_mode == "percent_loss": interpreted as rho in (0,1) (percentage of loss increase).
+        - If epsilon_mode == "LR_alpha": interpreted as alpha in (0,1) (Chi2 significance level).
     epsilon_mode : {"percent_loss", "LR_alpha", "LR_alpha_highdim"}
         Calibration mode for epsilon.
     sampler : {"ellipsoid", "hitandrun"}
-        Sampling backend (placeholder in v0).
+        Sampling backend. "ellipsoid" is faster for lower dimensions; "hitandrun" is more robust
+        for complex sets or higher dimensions.
     measure : {"param", "lr"}
         Volume measure choice (annotated in diagnostics only).
     random_state : Optional[int]
@@ -198,6 +230,17 @@ class RashomonSet:
         Wilks' preconditions are violated (penalized/high-dim).
     bootstrap_reps : int
         Number of bootstrap replicates for LR_alpha fallback (default 200).
+
+    Examples
+    --------
+    >>> from rashomon import RashomonSet
+    >>> import numpy as np
+    >>> X, y = np.random.randn(100, 5), np.random.randint(0, 2, 100)
+    >>> rs = RashomonSet(epsilon=0.05)
+    >>> rs.fit(X, y)
+    >>> # Check how many predictions flip across the set
+    >>> amb = rs.ambiguity(X)
+    >>> print(f"Ambiguity Rate: {amb['ambiguity_rate']:.2%}")
     """
 
     def __init__(

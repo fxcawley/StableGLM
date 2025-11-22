@@ -6,7 +6,9 @@ Welcome to StableGLM. This site documents the Rashomon-GLM toolkit.
 :maxdepth: 2
 :caption: Contents
 
+guide/concepts
 guide/quickstart
+examples/tutorial
 guide/overview
 api/reference
 project_plan
