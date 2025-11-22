@@ -38,15 +38,15 @@ We fit a Rashomon set with $\epsilon=0.01$ (very tight, allowing only 1% loss de
 ![](../_static/tutorial_vic.png)
 
 **Interpretation**:
-*   **Substitution Effect**: Notice `mean radius` and `mean area`. Both have wide intervals that dip near zero. This implies that they are **substitutes**: a model can rely heavily on Radius and ignore Area, or vice-versa, and still be "good."
-*   **Consistent Signals**: `mean concavity` also shows variance, but tends to stay positive (or negative depending on encoding).
+*   **Consistent Signals**: Unlike the previous example, here most coefficients stay strictly positive or negative. For instance, `mean area` always has a strong positive impact (or negative depending on label encoding).
+*   **Variation**: However, there is still spread. `mean area`'s coefficient can vary significantly while maintaining 99% optimality.
 
 ## 3. Predictive Multiplicity (Ambiguity)
 
 ![](../_static/tutorial_ambiguity.png)
 
 **Interpretation**:
-*   Even with 93%+ accuracy, there are patients (samples) where models disagree.
+*   Even with >93% accuracy, there are patients (samples) where models disagree.
 *   The vertical bars show the range of probabilities. A few samples cross the 0.5 decision boundary. For these patients, the diagnosis is model-dependent—a "Rashomon" ambiguity.
 
 ## 4. Model Class Reliance (MCR)
@@ -55,15 +55,15 @@ We compute the Minimum and Maximum importance (accuracy drop) for each feature a
 
 | Feature | Min Importance | Mean Importance | Max Importance |
 | :--- | :--- | :--- | :--- |
-| mean radius | 0.000 | 0.0006 | 0.057 |
-| mean texture | 0.000 | 0.0004 | 0.044 |
-| mean smoothness | 0.000 | 0.0004 | 0.038 |
-| mean area | 0.000 | 0.0011 | 0.110 |
-| mean concavity | 0.000 | 0.0005 | 0.051 |
+| mean radius | 0.040 | 0.058 | 0.076 |
+| mean texture | 0.025 | 0.040 | 0.056 |
+| mean smoothness | 0.020 | 0.037 | 0.058 |
+| mean area | 0.072 | 0.094 | 0.118 |
+| mean concavity | 0.031 | 0.049 | 0.065 |
 
-**Key Finding: Systemic Redundancy**
-*   **Min Importance = 0**: Strikingly, the minimum importance for *every* feature is 0. This means that for any given feature, there exists a valid (good) model that effectively ignores it.
-*   **Distributed Signal**: The diagnostic signal is so strong and distributed across these correlated geometric features that **no single feature is a single point of failure**.
-*   **Max Importance**: However, some models rely heavily on `mean area` (up to 11% accuracy drop if removed). This confirms that `mean area` is a *powerful* predictor, just not a *unique* one.
+**Key Findings:**
+*   **Indispensability**: Every feature has `Min Importance > 0`. This means **no feature can be dropped** without hurting the model performance beyond the 1% tolerance. Every feature provides unique, necessary information.
+*   **Dominant Predictor**: `mean area` is the most critical feature. Even in the model that relies on it the *least* (Min), removing it causes a 7.2% drop in accuracy. In the model that relies on it the *most* (Max), the drop is 11.8%.
+*   **Stability**: The range (Max - Min) is relatively narrow for most features (e.g., `mean smoothness` varies from 2.0% to 5.8%), indicating stable importance.
 
-This analysis proves that the "optimal" feature importance is just one of many valid possibilities.
+This contrasts with datasets where features are highly redundant (Min ~ 0). Here, the diagnostic signals are robust.
