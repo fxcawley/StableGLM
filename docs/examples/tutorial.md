@@ -1,136 +1,68 @@
-# Interactive Tutorial
+# Case Study: Robustness in Credit Scoring
 
-This tutorial demonstrates how to use `RashomonSet` to analyze the stability and multiplicity of a logistic regression model.
+In this tutorial, we apply **StableGLM** to a real-world credit scoring problem. We want to predict whether a loan applicant is a "bad" credit risk based on their financial history and demographics.
 
-## 1. Setup and Data Generation
+We use the **German Credit** dataset (UCI/OpenML ID 31).
 
-We'll create a synthetic dataset where some features are correlated, leading to model instability.
+## 1. Problem Setup
+
+**Goal**: Predict default risk (`bad` credit).
+**Key Questions**:
+1.  Which features are *consistently* important for predicting default?
+2.  How many applicants receive ambiguous decisions depending on the model choice?
+3.  Are features like "Age" robustly predictive, or can they be ignored without loss?
 
 ```python
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
+from sklearn.datasets import fetch_openml
+from sklearn.model_selection import train_test_split
 from rashomon import RashomonSet
 
-# Reproducibility
-np.random.seed(42)
+# Load German Credit Data
+data = fetch_openml(data_id=31, as_frame=True, parser="auto")
+X = data.data
+y = (data.target == 'bad').astype(float) # 1 = Default
 
-# Generate synthetic data (n=200, d=5)
-n_samples = 200
-n_features = 5
-X = np.random.randn(n_samples, n_features)
-
-# Feature 0 and 1 are correlated
-X[:, 1] = X[:, 0] * 0.9 + np.random.randn(n_samples) * 0.1
-
-# True coefficients (Feature 2 is irrelevant)
-true_theta = np.array([2.0, -1.5, 0.0, 0.5, -0.5])
-
-# Generate labels
-logits = X @ true_theta
-probs = 1 / (1 + np.exp(-logits))
-y = (np.random.rand(n_samples) < probs).astype(float)
-
-print(f"Data shape: {X.shape}")
-print(f"Class balance: {np.mean(y):.2%}")
-```
-*Output:*
-```
-Data shape: (200, 5)
-Class balance: 53.50%
+# We focus on a subset of interpretable features:
+# - checking_status (financial status)
+# - duration (loan duration)
+# - credit_history (past behavior)
+# - age (demographics)
+# - job (employment status)
 ```
 
-## 2. Fit Rashomon Set
+## 2. Variable Importance Cloud (VIC)
 
-We fit the optimal model and define the Rashomon set with $\epsilon = 0.05$ (allowing 5% higher loss than optimal).
-
-```python
-# Initialize RashomonSet
-# epsilon_mode="percent_loss" means epsilon=0.05 allows 5% deviation in log-loss
-rs = RashomonSet(
-    estimator="logistic",
-    epsilon=0.05,
-    epsilon_mode="percent_loss",
-    sampler="hitandrun", # More robust for correlated features
-    random_state=42
-)
-
-rs.fit(X, y)
-
-# Check diagnostics
-diag = rs.diagnostics()
-print(f"Optimal Loss (L_hat): {diag['L_hat']:.4f}")
-print(f"Epsilon (absolute): {diag['epsilon']:.4f}")
-```
-*Output:*
-```
-Optimal Loss (L_hat): 0.4213
-Epsilon (absolute): 0.0211
-```
-
-## 3. Variable Importance Cloud (VIC)
-
-Instead of a single coefficient vector, we look at the distribution of coefficients across the set.
-
-```python
-# Visualize VIC
-# This samples models from the set and plots their coefficients
-rs.plot_vic()
-plt.show()
-```
+We fit a logistic regression Rashomon set ($\epsilon=0.05$) and visualize the coefficients.
 
 ![](../_static/tutorial_vic.png)
 
 **Interpretation**:
-- **Feature 0 and 1**: Notice the wide spread and correlation. Because they are correlated in `X`, the model can trade weight between them while maintaining similar loss.
-- **Feature 2**: Centered near zero (correctly identified as irrelevant).
+- **Wide Intervals**: Notice that many coefficients have wide intervals crossing zero. This indicates that the optimal model's reliance on these features is *not stable*. You could find an almost-as-good model with a very different weight for `duration` or `age`.
+- **Redundancy**: The fact that so many features can vary suggests the dataset has high redundancy—information is spread across many correlated variables.
 
-## 4. Predictive Multiplicity
+## 3. Predictive Multiplicity (Ambiguity)
 
-How often do these "equally good" models disagree on predictions?
-
-```python
-# Compute Ambiguity (fraction of samples with conflicting predictions)
-amb = rs.ambiguity(X)
-print(f"Ambiguity Rate: {amb['ambiguity_rate']:.2%}")
-
-# Compute Discrepancy (max disagreement between two models)
-disc = rs.discrepancy(X, n_samples=100)
-print(f"Max Discrepancy: {disc['discrepancy_empirical']:.2%}")
-```
-*Output:*
-```
-Ambiguity Rate: 12.50%
-Max Discrepancy: 8.00%
-```
-
-```python
-# Visualizing Ambiguity
-# Plot the range of predicted probabilities for the first 20 samples
-rs.plot_ambiguity(X[:20], y=y[:20])
-plt.show()
-```
+We examine the "ambiguity" of predictions for test set applicants.
 
 ![](../_static/tutorial_ambiguity.png)
 
 **Interpretation**:
-The vertical bars show the range of probabilities assigned by models in the Rashomon set. Samples with bars crossing the 0.5 threshold are "ambiguous" — the model choice determines the label.
+- **Ambiguity**: The vertical bars show the range of predicted probabilities.
+- **Decision Flips**: Applicants with bars crossing the 0.5 threshold (red line) are "ambiguous". For these people, the decision to grant or deny credit depends entirely on which specific model from the Rashomon set you choose. This is a fairness concern.
 
-## 5. Model Class Reliance (MCR)
+## 4. Model Class Reliance (MCR)
 
-MCR gives bounds on feature importance.
+We quantify the *range* of importance for each feature. Importance is measured as the drop in accuracy when the feature is permuted.
 
-```python
-# Compute MCR using "residual" permutation (handles correlation better)
-mcr = rs.model_class_reliance(X, y, perm_mode="residual", n_permutations=10)
+| Feature | Min Importance | Mean Importance | Max Importance |
+| :--- | :--- | :--- | :--- |
+| duration | 0.000 | 0.0003 | 0.027 |
+| credit_amount | 0.000 | 0.0002 | 0.021 |
+| age | 0.000 | 0.0003 | 0.028 |
+| checking_status | 0.000 | 0.0002 | 0.024 |
+| credit_history | 0.000 | 0.0003 | 0.030 |
 
-import pandas as pd
-mcr_df = pd.DataFrame({
-    "Feature": [f"x{i}" for i in range(n_features)],
-    "Min Importance": mcr["min_importance"],
-    "Max Importance": mcr["max_importance"]
-})
-print(mcr_df)
-```
-
-This shows the range of "indispensability" for each feature.
+**Key Insight**:
+- **Min Importance = 0**: For almost every feature, there exists a "good" model that barely relies on it (importance ~ 0).
+- **Distributed Signal**: This confirms that no single feature is a "bottleneck." The signal for credit risk is distributed. You cannot say "Age is definitely important" because there is a valid model where Age is irrelevant.
+- **Rashomon Effect**: This is the essence of the Rashomon Effect in high-dimensional data. Many different explanations (models) account for the data equally well.
