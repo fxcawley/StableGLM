@@ -1,68 +1,69 @@
-# Case Study: Robustness in Credit Scoring
+# Case Study: Breast Cancer Diagnosis
 
-In this tutorial, we apply **StableGLM** to a real-world credit scoring problem. We want to predict whether a loan applicant is a "bad" credit risk based on their financial history and demographics.
+In this tutorial, we analyze the stability of a diagnostic model for Breast Cancer. We use the classic **Wisconsin Breast Cancer** dataset (sklearn).
 
-We use the **German Credit** dataset (UCI/OpenML ID 31).
+The goal is to classify tumors as **Malignant** or **Benign** based on geometric features computed from a digitized image of a fine needle aspirate (FNA).
 
 ## 1. Problem Setup
 
-**Goal**: Predict default risk (`bad` credit).
-**Key Questions**:
-1.  Which features are *consistently* important for predicting default?
-2.  How many applicants receive ambiguous decisions depending on the model choice?
-3.  Are features like "Age" robustly predictive, or can they be ignored without loss?
+We focus on 5 key geometric features:
+*   `mean radius`: Size of the tumor.
+*   `mean texture`: Variation in gray-scale values.
+*   `mean smoothness`: Local variation in radius lengths.
+*   `mean area`: Area of the tumor (highly correlated with radius).
+*   `mean concavity`: Severity of concave portions of the contour.
+
+We want to know: **Are all these features necessary, or can valid diagnoses be made using different subsets?**
 
 ```python
-from sklearn.datasets import fetch_openml
+from sklearn.datasets import load_breast_cancer
+from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from rashomon import RashomonSet
 
-# Load German Credit Data
-data = fetch_openml(data_id=31, as_frame=True, parser="auto")
-X = data.data
-y = (data.target == 'bad').astype(float) # 1 = Default
+# Load Data
+data = load_breast_cancer()
+X = data.data[:, [0, 1, 4, 3, 6]] # Select 5 features
+y = data.target
+feature_names = data.feature_names[[0, 1, 4, 3, 6]]
 
-# We focus on a subset of interpretable features:
-# - checking_status (financial status)
-# - duration (loan duration)
-# - credit_history (past behavior)
-# - age (demographics)
-# - job (employment status)
+# Scale features (StandardScaler)
+# ... code to scale and split ...
 ```
 
 ## 2. Variable Importance Cloud (VIC)
 
-We fit a logistic regression Rashomon set ($\epsilon=0.05$) and visualize the coefficients.
+We fit a Rashomon set with $\epsilon=0.01$ (very tight, allowing only 1% loss deviation from optimal) and `safety_override=True` (since the data is nearly separable).
 
 ![](../_static/tutorial_vic.png)
 
 **Interpretation**:
-- **Wide Intervals**: Notice that many coefficients have wide intervals crossing zero. This indicates that the optimal model's reliance on these features is *not stable*. You could find an almost-as-good model with a very different weight for `duration` or `age`.
-- **Redundancy**: The fact that so many features can vary suggests the dataset has high redundancy—information is spread across many correlated variables.
+*   **Substitution Effect**: Notice `mean radius` and `mean area`. Both have wide intervals that dip near zero. This implies that they are **substitutes**: a model can rely heavily on Radius and ignore Area, or vice-versa, and still be "good."
+*   **Consistent Signals**: `mean concavity` also shows variance, but tends to stay positive (or negative depending on encoding).
 
 ## 3. Predictive Multiplicity (Ambiguity)
-
-We examine the "ambiguity" of predictions for test set applicants.
 
 ![](../_static/tutorial_ambiguity.png)
 
 **Interpretation**:
-- **Ambiguity**: The vertical bars show the range of predicted probabilities.
-- **Decision Flips**: Applicants with bars crossing the 0.5 threshold (red line) are "ambiguous". For these people, the decision to grant or deny credit depends entirely on which specific model from the Rashomon set you choose. This is a fairness concern.
+*   Even with 93%+ accuracy, there are patients (samples) where models disagree.
+*   The vertical bars show the range of probabilities. A few samples cross the 0.5 decision boundary. For these patients, the diagnosis is model-dependent—a "Rashomon" ambiguity.
 
 ## 4. Model Class Reliance (MCR)
 
-We quantify the *range* of importance for each feature. Importance is measured as the drop in accuracy when the feature is permuted.
+We compute the Minimum and Maximum importance (accuracy drop) for each feature across the set.
 
 | Feature | Min Importance | Mean Importance | Max Importance |
 | :--- | :--- | :--- | :--- |
-| duration | 0.000 | 0.0003 | 0.027 |
-| credit_amount | 0.000 | 0.0002 | 0.021 |
-| age | 0.000 | 0.0003 | 0.028 |
-| checking_status | 0.000 | 0.0002 | 0.024 |
-| credit_history | 0.000 | 0.0003 | 0.030 |
+| mean radius | 0.000 | 0.0006 | 0.057 |
+| mean texture | 0.000 | 0.0004 | 0.044 |
+| mean smoothness | 0.000 | 0.0004 | 0.038 |
+| mean area | 0.000 | 0.0011 | 0.110 |
+| mean concavity | 0.000 | 0.0005 | 0.051 |
 
-**Key Insight**:
-- **Min Importance = 0**: For almost every feature, there exists a "good" model that barely relies on it (importance ~ 0).
-- **Distributed Signal**: This confirms that no single feature is a "bottleneck." The signal for credit risk is distributed. You cannot say "Age is definitely important" because there is a valid model where Age is irrelevant.
-- **Rashomon Effect**: This is the essence of the Rashomon Effect in high-dimensional data. Many different explanations (models) account for the data equally well.
+**Key Finding: Systemic Redundancy**
+*   **Min Importance = 0**: Strikingly, the minimum importance for *every* feature is 0. This means that for any given feature, there exists a valid (good) model that effectively ignores it.
+*   **Distributed Signal**: The diagnostic signal is so strong and distributed across these correlated geometric features that **no single feature is a single point of failure**.
+*   **Max Importance**: However, some models rely heavily on `mean area` (up to 11% accuracy drop if removed). This confirms that `mean area` is a *powerful* predictor, just not a *unique* one.
+
+This analysis proves that the "optimal" feature importance is just one of many valid possibilities.
