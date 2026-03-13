@@ -2,39 +2,80 @@
 
 ## The Rashomon Effect
 
-In machine learning, the "Rashomon Effect" describes the observation that for a given dataset, there are often many different models that perform approximately equally well. These models may have vastly different internal structures, feature importances, or predictions for individual instances.
-
-**Rashomon-GLM** allows you to explore this set of models (the "Rashomon Set") for Generalized Linear Models (GLMs).
+For a given dataset, there are often many models that perform approximately equally well.
+These models may have different coefficients, different feature importances, and different
+predictions for individual instances. The name comes from Breiman (2001), who observed that
+the multiplicity of good models is a fundamental property of many prediction problems.
 
 ## The Rashomon Set
 
-Formally, let $\mathcal{F}$ be the class of linear models (parameterized by $\theta$). Let $L(\theta)$ be the loss function. The empirical risk minimizer is $\hat{\theta} = \arg\min_\theta L(\theta)$.
+Given a loss function $L(\theta)$ with minimizer $\hat{\theta}$, the **$\epsilon$-Rashomon set** is:
 
-The **$\epsilon$-Rashomon set** is defined as:
+$$ R_\epsilon = \{ \theta : L(\theta) \le L(\hat{\theta}) + \epsilon \} $$
 
-$$ R_\epsilon = \{ \theta \in \mathcal{F} : L(\theta) \le L(\hat{\theta}) + \epsilon \} $$
+This is the set of all parameter vectors within $\epsilon$ of the best achievable loss.
+For convex losses with L2 regularization (logistic regression, ridge regression), this set
+is a convex sublevel set of the loss surface. Near the optimum, it is approximately
+ellipsoidal, with shape determined by the Hessian $H = \nabla^2 L(\hat{\theta})$.
 
-where $\epsilon$ is a user-defined tolerance. This set contains all models that are "good enough."
+### What $\epsilon$ controls
 
-### Why explore it?
+- **Small $\epsilon$**: tight set, only models very close to the optimum. Results are
+  conservative -- if instability appears here, it is severe.
+- **Large $\epsilon$**: permissive set, includes models with meaningfully higher loss.
+  Results may overstate instability.
 
-1.  **Robustness**: If feature $X$ is important in the optimal model but has zero weight in many other good models, its importance is unstable.
-2.  **Fairness**: Two models might have the same accuracy but treat a specific subgroup differently. This is "predictive multiplicity."
-3.  **Domain Constraints**: You might prefer a sparser model or one that aligns with causal knowledge, even if it has slightly higher loss.
+StableGLM supports three calibration modes:
+- `percent_loss`: $\epsilon = \rho \cdot L(\hat{\theta})$ for a user-specified $\rho$
+- `LR_alpha`: $\epsilon = \chi^2_{d,1-\alpha} / (2n)$ via Wilks' theorem
+- `LR_alpha_highdim`: high-dimensional correction (experimental)
+
+## Two Kinds of Uncertainty
+
+Standard statistical tools (bootstrap CIs, Bayesian posteriors, p-values) quantify
+**sampling uncertainty**: how much would the answer change if we drew a different dataset
+from the same distribution?
+
+Rashomon set analysis quantifies **design-choice multiplicity**: how many qualitatively
+different models achieve nearly the same loss on *this* dataset?
+
+These are orthogonal:
+
+| | Narrow bootstrap CIs | Wide bootstrap CIs |
+|---|---|---|
+| **Narrow VIC** | Stable: one clear best model | Uncertain but robust predictions |
+| **Wide VIC** | **Dangerous**: false confidence | Everything is unstable |
+
+The "narrow CIs + wide VIC" case is the most concerning because standard tools report
+confidence while the underlying predictions are arbitrary. The
+{doc}`case study <../examples/tutorial>` demonstrates this with a 85-230x width ratio.
 
 ## Predictive Multiplicity
 
-Predictive multiplicity refers to the phenomenon where models in the Rashomon set assign conflicting predictions to the same input.
-
 ### Ambiguity
-**Ambiguity** measures the fraction of samples for which the models in the Rashomon set disagree on the label. If a loan applicant is rejected by the optimal model but accepted by 40% of the models in the Rashomon set, their prediction is "ambiguous."
+
+The fraction of instances where the Rashomon set contains models that disagree on the label.
+Instance $i$ is **ambiguous** if its margin interval $[m_i^{\min}, m_i^{\max}]$ straddles
+the decision threshold. These are people whose prediction is an artifact of model selection.
 
 ### Discrepancy
-**Discrepancy** is the maximum disagreement rate between any two models in the set. It answers: "How different can two equally good models be?"
+
+The maximum disagreement rate between any two models in the Rashomon set. If discrepancy
+is 30%, there exist two equally-good models that give opposite predictions for 30% of
+the population.
 
 ## Variable Importance
 
-Standard feature importance (e.g., coefficient magnitude) gives a single number. **Variable Importance Clouds (VIC)** visualize the distribution of coefficients across the entire Rashomon set, giving you a full picture of feature stability.
+### VIC (Variable Importance Cloud)
 
-**Model Class Reliance (MCR)** provides formal bounds on the importance of a variable (highest possible importance vs. lowest possible importance) across the set.
+The distribution of each coefficient across the Rashomon set. Unlike a confidence interval,
+VIC does not shrink with more data -- it reflects the geometry of the loss surface, not
+sampling noise. A feature with a wide VIC is one where many different weightings are
+compatible with near-optimal loss.
 
+### MCR (Model Class Reliance)
+
+The min and max permutation importance of each feature across the Rashomon set
+(Fisher, Rudin, Dominici 2019). If MCR- < 0 for a feature, there exists a near-optimal
+model where that feature is not just unnecessary but actively harmful. If MCR- > 0,
+the feature is indispensable across all good models.
