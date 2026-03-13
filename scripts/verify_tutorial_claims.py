@@ -8,9 +8,9 @@ This script is run in CI to ensure tutorial numbers stay accurate.
 """
 from __future__ import annotations
 
+import re
 import sys
 import os
-import re
 
 import numpy as np
 from sklearn.datasets import load_breast_cancer
@@ -19,6 +19,8 @@ from sklearn.model_selection import train_test_split
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from rashomon import RashomonSet
+
+TUTORIAL_PATH = os.path.join(os.path.dirname(__file__), "..", "docs", "examples", "tutorial.md")
 
 
 def generate_tutorial_results() -> dict:
@@ -44,10 +46,7 @@ def generate_tutorial_results() -> dict:
         safety_override=True,
     ).fit(X_train, y_train)
 
-    # Ambiguity
     amb = rs.ambiguity(X_test, threshold_mode="fixed", threshold_value=0.5)
-
-    # Discrepancy
     disc = rs.discrepancy(X_test, n_samples=200, n_pairs=200, random_state=42)
 
     return {
@@ -58,41 +57,58 @@ def generate_tutorial_results() -> dict:
     }
 
 
-def verify_claims(results: dict) -> list[str]:
-    """Check that generated results are consistent with tutorial.md claims."""
-    tutorial_path = os.path.join(os.path.dirname(__file__), "..", "docs", "examples", "tutorial.md")
-    with open(tutorial_path, encoding="utf-8") as f:
+def parse_tutorial_claims() -> dict:
+    """Extract claimed numbers directly from tutorial.md."""
+    with open(TUTORIAL_PATH, encoding="utf-8") as f:
         text = f.read()
 
+    claims = {}
+
+    # Parse "Ambiguous: 39/171 (22.8%)" pattern
+    m = re.search(r"Ambiguous:\s*(\d+)/(\d+)\s*\((\d+\.?\d*)%\)", text)
+    if m:
+        claims["n_ambiguous"] = int(m.group(1))
+        claims["n_test"] = int(m.group(2))
+        claims["ambiguity_rate"] = float(m.group(3)) / 100.0
+
+    # Parse "Max pair disagreement: 7.6%" pattern
+    m = re.search(r"Max pair disagreement:\s*(\d+\.?\d*)%", text)
+    if m:
+        claims["max_pair_disagreement"] = float(m.group(1)) / 100.0
+
+    return claims
+
+
+def verify_claims(results: dict, claims: dict) -> list[str]:
+    """Check that generated results match the claims parsed from tutorial.md."""
     failures = []
 
-    # Claim: "39 out of 171 test patients" or "Ambiguous: 39/171 (22.8%)"
-    # Allow +-5 ambiguous patients and +-3% rate due to sampling variance
-    actual_n_amb = results["n_ambiguous"]
-    actual_rate = results["ambiguity_rate"]
-    actual_n_test = results["n_test"]
+    if "n_test" in claims and results["n_test"] != claims["n_test"]:
+        failures.append(f"n_test: tutorial says {claims['n_test']}, got {results['n_test']}")
 
-    # Check n_test matches
-    if actual_n_test != 171:
-        failures.append(f"n_test: expected 171, got {actual_n_test}")
+    if "n_ambiguous" in claims:
+        diff = abs(results["n_ambiguous"] - claims["n_ambiguous"])
+        if diff > 5:
+            failures.append(
+                f"n_ambiguous: tutorial says {claims['n_ambiguous']}, "
+                f"got {results['n_ambiguous']} (diff {diff} > 5)"
+            )
 
-    # Check ambiguity rate is within reasonable tolerance of the claimed value
-    # The tutorial says 22.8% -- allow +-5% absolute
-    claimed_rate = 0.228
-    if abs(actual_rate - claimed_rate) > 0.05:
-        failures.append(
-            f"ambiguity_rate: claimed ~{claimed_rate:.1%}, got {actual_rate:.1%} "
-            f"(difference {abs(actual_rate - claimed_rate):.1%} > 5% tolerance)"
-        )
+    if "ambiguity_rate" in claims:
+        diff = abs(results["ambiguity_rate"] - claims["ambiguity_rate"])
+        if diff > 0.05:
+            failures.append(
+                f"ambiguity_rate: tutorial says {claims['ambiguity_rate']:.1%}, "
+                f"got {results['ambiguity_rate']:.1%} (diff {diff:.1%} > 5%)"
+            )
 
-    # Check max pair disagreement -- tutorial says 7.6%, allow +-3%
-    claimed_disc = 0.076
-    actual_disc = results["max_pair_disagreement"]
-    if abs(actual_disc - claimed_disc) > 0.03:
-        failures.append(
-            f"max_pair_disagreement: claimed ~{claimed_disc:.1%}, got {actual_disc:.1%} "
-            f"(difference {abs(actual_disc - claimed_disc):.1%} > 3% tolerance)"
-        )
+    if "max_pair_disagreement" in claims:
+        diff = abs(results["max_pair_disagreement"] - claims["max_pair_disagreement"])
+        if diff > 0.03:
+            failures.append(
+                f"max_pair_disagreement: tutorial says {claims['max_pair_disagreement']:.1%}, "
+                f"got {results['max_pair_disagreement']:.1%} (diff {diff:.1%} > 3%)"
+            )
 
     return failures
 
@@ -105,8 +121,16 @@ if __name__ == "__main__":
     print(f"  ambiguity_rate={results['ambiguity_rate']:.1%}")
     print(f"  max_pair_disagreement={results['max_pair_disagreement']:.1%}")
 
-    print("\nVerifying against tutorial.md claims...")
-    failures = verify_claims(results)
+    print("\nParsing claims from tutorial.md...")
+    claims = parse_tutorial_claims()
+    if not claims:
+        print("  WARNING: Could not parse any claims from tutorial.md")
+        sys.exit(1)
+    for k, v in claims.items():
+        print(f"  {k}={v}")
+
+    print("\nVerifying...")
+    failures = verify_claims(results, claims)
 
     if failures:
         print(f"\nFAILED: {len(failures)} claim(s) do not match:")

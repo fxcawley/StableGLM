@@ -906,7 +906,8 @@ class RashomonSet:
             # sklearn minimizes C*sum(loss) + (1/2)||w||^2 (sum, not mean)
             # Our objective: (1/n)*sum(loss) + (lam/2)||w||^2, so C = 1/(n*lam)
             model = LogisticRegression(
-                penalty="l2", C=1.0 / (n * lam), fit_intercept=False, solver="lbfgs",
+                C=1.0 / (n * lam), fit_intercept=False, solver="lbfgs",
+                l1_ratio=0,
                 max_iter=self.max_iter, random_state=self.random_state,
             )
             model.fit(X, y.astype(int))
@@ -1823,6 +1824,16 @@ class RashomonSet:
             grad_theta I_j = (1/n) X_perm^T (sigma(X_perm theta) - y)
                            - (1/n) X^T (sigma(X theta) - y)
 
+        .. note::
+
+            These first-order bounds are typically **narrower** than the
+            sampling-based MCR from :meth:`model_class_reliance`, because
+            the linearization underestimates the curvature of importance
+            as a function of theta. Use :meth:`model_class_reliance` with
+            ``sampler="hitandrun"`` for definitive MCR bounds; use this
+            method for fast, conservative (inner) approximations or when
+            sampling is too expensive.
+
         Parameters
         ----------
         X : array (n, d)
@@ -2549,8 +2560,8 @@ class RashomonSet:
                     lam = self._lambda
                     C_val = 1.0 / (n * lam) if lam > 0 else 1e6
                     model = LogisticRegression(
-                        penalty="l2", C=C_val, fit_intercept=False,
-                        solver="lbfgs", max_iter=1000
+                        C=C_val, fit_intercept=False,
+                        solver="lbfgs", l1_ratio=0, max_iter=1000
                     )
                     try:
                         model.fit(X_b, y_b)
