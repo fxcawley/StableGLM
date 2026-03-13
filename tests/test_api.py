@@ -404,6 +404,10 @@ def test_mcr_analytic():
     # Analytic bounds should bracket the point estimate
     assert np.all(result["mcr_min_analytic"] <= result["importance_at_hat"] + 1e-10)
     assert np.all(result["importance_at_hat"] <= result["mcr_max_analytic"] + 1e-10)
+    # importance_at_hat measures loss increase from permutation -- should be >= 0 on average
+    assert np.mean(result["importance_at_hat"]) >= -0.01
+    # grad_norms should be non-negative (norms are always >= 0)
+    assert np.all(result["grad_norms"] >= -1e-10)
 
 
 def test_shapley_vic():
@@ -496,7 +500,7 @@ def test_from_ensemble():
         models.append(theta)
 
     result = RashomonSet.from_ensemble(
-        models, X, y, estimator="logistic",
+        models, X, y, estimator="logistic", lam=0.5,
         feature_names=["f0", "f1", "f2", "f3"]
     )
 
@@ -509,6 +513,13 @@ def test_from_ensemble():
     assert 0 <= result["ambiguity_rate"] <= 1
     assert 0 <= result["max_pair_disagreement"] <= 1
     assert result["feature_names"] == ["f0", "f1", "f2", "f3"]
+
+    # With lam>0, losses should include regularization (larger than data-only)
+    result_noreg = RashomonSet.from_ensemble(
+        models, X, y, estimator="logistic", lam=0.0,
+    )
+    # Regularized losses should be >= data-only losses
+    assert np.all(result["losses"] >= result_noreg["losses"] - 1e-10)
 
 
 def test_compare_to_bayesian():

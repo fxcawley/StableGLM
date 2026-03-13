@@ -1808,16 +1808,20 @@ class RashomonSet:
         n_permutations: int = 20,
         random_state: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """Analytic MCR bounds via quadratic relaxation of permutation risk.
+        """Analytic MCR bounds via first-order relaxation of permutation loss.
 
-        Instead of sampling models, computes the gradient of permutation
-        importance I_j(theta) at theta_hat and uses the hacking interval
-        formula to bound the min/max importance over the Rashomon set:
+        Computes the gradient of the loss-based permutation importance
+        I_j(theta) = L_perm_j(theta) - L(theta) at theta_hat, then uses
+        the hacking interval formula for analytic MCR bounds:
 
             MCR_j^{min/max} = I_j(theta_hat) -/+ sqrt(2*eps) * ||grad_I_j||_{H^{-1}}
 
-        This is a first-order approximation valid when the importance
-        functional is approximately linear near theta_hat.
+        Uses the smooth loss function (logistic loss / MSE) rather than
+        accuracy, so the gradient is well-defined. For logistic regression,
+        the gradient is computed analytically:
+
+            grad_theta I_j = (1/n) X_perm^T (sigma(X_perm theta) - y)
+                           - (1/n) X^T (sigma(X theta) - y)
 
         Parameters
         ----------
@@ -1835,7 +1839,7 @@ class RashomonSet:
         dict with:
             - 'mcr_min_analytic': array (d,) - lower bounds
             - 'mcr_max_analytic': array (d,) - upper bounds
-            - 'importance_at_hat': array (d,) - importance at theta_hat
+            - 'importance_at_hat': array (d,) - importance at theta_hat (loss increase)
             - 'grad_norms': array (d,) - ||grad_I_j||_{H^{-1}} per feature
         """
         if not self._fitted:
@@ -1848,71 +1852,51 @@ class RashomonSet:
         rng = np.random.default_rng(seed)
         theta_hat = self._theta_hat
         eps = self._epsilon_value
+        lam = self._lambda
 
         importance_at_hat = np.zeros(d, dtype=float)
         grad_norms = np.zeros(d, dtype=float)
 
-        # Compute base score at theta_hat
+        # Base loss at theta_hat (data term only, no regularization --
+        # regularization cancels in the importance difference)
         if self.estimator == "logistic":
-            scores_base = X @ theta_hat
-            preds_base = (scores_base > 0.0).astype(int)
-            base_acc = float(np.mean((preds_base == y.astype(int)).astype(float)))
+            z_base = X @ theta_hat
+            base_loss = float(np.mean(np.logaddexp(0.0, z_base) - y * z_base))
+            p_base = _sigmoid(z_base)
+            # Gradient of base loss w.r.t. theta (data term only)
+            grad_base = (X.T @ (p_base - y)) / n
         else:
-            preds_base = X @ theta_hat
-            ss_res = float(np.sum((y - preds_base) ** 2))
-            y_mean = float(np.mean(y))
-            ss_tot = float(np.sum((y - y_mean) ** 2))
-            base_acc = 1.0 - ss_res / ss_tot if ss_tot > 0 else 1.0
+            pred_base = X @ theta_hat
+            resid_base = y - pred_base
+            base_loss = float(0.5 * np.mean(resid_base ** 2))
+            # Gradient: -(1/n) X^T (y - X theta)
+            grad_base = -(X.T @ resid_base) / n
 
         for j in range(d):
-            perm_accs = np.zeros(n_permutations, dtype=float)
+            # Average importance and gradient over permutations
+            imp_sum = 0.0
+            grad_sum = np.zeros(d, dtype=float)
+
             for p in range(n_permutations):
                 Xp = X.copy()
                 rng.shuffle(Xp[:, j])
+
                 if self.estimator == "logistic":
-                    sp = Xp @ theta_hat
-                    pp = (sp > 0.0).astype(int)
-                    perm_accs[p] = float(np.mean((pp == y.astype(int)).astype(float)))
+                    z_perm = Xp @ theta_hat
+                    perm_loss = float(np.mean(np.logaddexp(0.0, z_perm) - y * z_perm))
+                    p_perm = _sigmoid(z_perm)
+                    grad_perm = (Xp.T @ (p_perm - y)) / n
                 else:
-                    pp = Xp @ theta_hat
-                    sr = float(np.sum((y - pp) ** 2))
-                    perm_accs[p] = 1.0 - sr / ss_tot if ss_tot > 0 else 1.0
+                    pred_perm = Xp @ theta_hat
+                    resid_perm = y - pred_perm
+                    perm_loss = float(0.5 * np.mean(resid_perm ** 2))
+                    grad_perm = -(Xp.T @ resid_perm) / n
 
-            importance_at_hat[j] = base_acc - np.mean(perm_accs)
+                imp_sum += (perm_loss - base_loss)
+                grad_sum += (grad_perm - grad_base)
 
-            # Numerical gradient of I_j w.r.t. theta via finite differences
-            grad_Ij = np.zeros(d, dtype=float)
-            h = 1e-4
-            for k in range(d):
-                theta_plus = theta_hat.copy()
-                theta_plus[k] += h
-                if self.estimator == "logistic":
-                    sp = X @ theta_plus
-                    pp = (sp > 0.0).astype(int)
-                    base_plus = float(np.mean((pp == y.astype(int)).astype(float)))
-                else:
-                    pp = X @ theta_plus
-                    sr = float(np.sum((y - pp) ** 2))
-                    base_plus = 1.0 - sr / ss_tot if ss_tot > 0 else 1.0
-
-                # Same permutations for consistency
-                rng_j = np.random.default_rng(seed + j * 1000)
-                perm_accs_plus = np.zeros(n_permutations, dtype=float)
-                for p in range(n_permutations):
-                    Xp = X.copy()
-                    rng_j.shuffle(Xp[:, j])
-                    if self.estimator == "logistic":
-                        sp = Xp @ theta_plus
-                        pp = (sp > 0.0).astype(int)
-                        perm_accs_plus[p] = float(np.mean((pp == y.astype(int)).astype(float)))
-                    else:
-                        pp = Xp @ theta_plus
-                        sr = float(np.sum((y - pp) ** 2))
-                        perm_accs_plus[p] = 1.0 - sr / ss_tot if ss_tot > 0 else 1.0
-
-                I_plus = base_plus - np.mean(perm_accs_plus)
-                grad_Ij[k] = (I_plus - importance_at_hat[j]) / h
-
+            importance_at_hat[j] = imp_sum / n_permutations
+            grad_Ij = grad_sum / n_permutations
             grad_norms[j] = self._hinv_norm(grad_Ij)
 
         delta = np.sqrt(2.0 * eps) * grad_norms
@@ -2804,6 +2788,7 @@ class RashomonSet:
         y: Array,
         *,
         estimator: str = "logistic",
+        lam: float = 0.0,
         feature_names: Optional[list] = None,
     ) -> Dict[str, Any]:
         """Compute Rashomon-style metrics from an external model ensemble.
@@ -2824,6 +2809,9 @@ class RashomonSet:
             Target vector.
         estimator : str
             Model type ("logistic" or "linear").
+        lam : float
+            Regularization strength (lambda). Include this to make losses
+            comparable to RashomonSet.L_hat. Default 0 computes data loss only.
         feature_names : Optional[list]
             Feature names.
 
@@ -2835,7 +2823,7 @@ class RashomonSet:
             - 'vic_mean': (d,) mean coefficients
             - 'vic_std': (d,) std of coefficients
             - 'vic_intervals': (d, 2) 90% intervals
-            - 'losses': (n_models,) loss values for each model
+            - 'losses': (n_models,) regularized loss for each model
             - 'ambiguity_rate': fraction of instances with disagreeing predictions
             - 'max_pair_disagreement': max pairwise disagreement
             - 'feature_names': list
@@ -2843,6 +2831,7 @@ class RashomonSet:
         X = np.asarray(X, dtype=float)
         y = np.asarray(y, dtype=float)
         n, d = X.shape
+        lam = float(lam)
 
         # Extract coefficient vectors
         coefs = []
@@ -2854,14 +2843,15 @@ class RashomonSet:
         coef_matrix = np.array(coefs, dtype=float)
         n_models = coef_matrix.shape[0]
 
-        # Compute losses
+        # Compute regularized losses (comparable to RashomonSet L_hat)
         losses = np.zeros(n_models, dtype=float)
         for i, theta in enumerate(coef_matrix):
             z = X @ theta
+            reg = 0.5 * lam * float(np.dot(theta, theta))
             if estimator == "logistic":
-                losses[i] = float(np.mean(np.logaddexp(0.0, z) - y * z))
+                losses[i] = float(np.mean(np.logaddexp(0.0, z) - y * z)) + reg
             else:
-                losses[i] = float(0.5 * np.mean((y - z) ** 2))
+                losses[i] = float(0.5 * np.mean((y - z) ** 2)) + reg
 
         # VIC statistics
         vic_mean = np.mean(coef_matrix, axis=0)
