@@ -20,6 +20,7 @@ of an arbitrary optimization path rather than properties of the data.
 guide/concepts
 guide/quickstart
 examples/tutorial
+evaluation
 guide/overview
 api/reference
 reproducibility
