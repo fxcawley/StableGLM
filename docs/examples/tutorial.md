@@ -89,6 +89,60 @@ shrink as $O(1/\sqrt{n})$ while Rashomon intervals for fixed $\epsilon$ do not. 
 reported here are specific to this dataset (n=398) and tolerance ($\epsilon$ = 3%). See the
 [sensitivity analysis](#sensitivity-to-epsilon) below for how the results change with $\epsilon$.
 
+### Adding the Bayesian Baseline
+
+The reviewer's natural question: how do Rashomon intervals compare to a Bayesian posterior?
+Under the Laplace approximation with a Gaussian prior $N(0, (1/\lambda)I)$, the posterior
+is $N(\hat\theta, H_{\text{post}}^{-1})$ where $H_{\text{post}} = \sum_i w_i x_i x_i^T + \lambda I$.
+
+```python
+comp_bayes = rs.compare_to_bayesian(
+    n_samples=500, confidence=0.90,
+    feature_names=feature_names, random_state=42,
+)
+```
+
+| Feature | Bootstrap | VIC | Bayesian | VIC/Boot | VIC/Bayes |
+|:--------|----------:|----:|---------:|---------:|----------:|
+| radius | 0.013 | 0.104 | 1.824 | 8.0x | 0.06x |
+| texture | 0.029 | 0.118 | 0.373 | 4.1x | 0.32x |
+| perimeter | 0.012 | 0.111 | 1.890 | 9.1x | 0.06x |
+| area | 0.013 | 0.117 | 1.577 | 9.4x | 0.07x |
+| smoothness | 0.025 | 0.120 | 0.560 | 4.8x | 0.21x |
+| compactness | 0.019 | 0.123 | 0.990 | 6.6x | 0.12x |
+| concavity | 0.017 | 0.121 | 0.999 | 7.2x | 0.12x |
+| concave_pts | 0.011 | 0.115 | 1.310 | 10.8x | 0.09x |
+| symmetry | 0.024 | 0.127 | 0.456 | 5.3x | 0.28x |
+| fractal_dim | 0.028 | 0.106 | 0.729 | 3.8x | 0.14x |
+
+![Three sources of uncertainty](../_static/three_way_comparison.png)
+
+The ordering is consistent across all features:
+
+$$\text{Bootstrap} \ll \text{VIC} \ll \text{Bayesian}$$
+
+**What this means.** The three intervals measure genuinely different things:
+
+- **Bootstrap** (narrowest): sampling fluctuation of the MLE. Answers: "how much would
+  $\hat\theta$ change if we redrew the data?"
+- **VIC** (middle): the $\epsilon$-sublevel set of the loss. Answers: "how many different
+  parameter vectors achieve loss within 3% of the optimum?"
+- **Bayesian** (widest): the full posterior uncertainty. Answers: "what is the posterior
+  distribution of $\theta$ given the data and a Gaussian prior?"
+
+For the correlated features (radius, perimeter, area), the Bayesian posterior is 15-17x
+wider than VIC because the posterior ridge extends along the collinear direction -- the data
+doesn't uniquely determine how much weight to assign to each correlated feature. The
+Rashomon set (at 3% tolerance) is a tighter ball that doesn't extend as far along this ridge.
+
+The key implication: **at this epsilon, the Rashomon set is a subset of the Bayesian
+posterior.** All VIC-flagged instability is already captured by Bayesian uncertainty. The
+Rashomon set's distinctive value is not in identifying *more* uncertainty than the Bayesian
+posterior, but in providing a different *interpretation*: the VIC interval says "there exist
+models this different that are nearly as good," while the Bayesian CI says "the data is
+consistent with parameters this different." The Rashomon framing is operational (about
+competing models) rather than epistemic (about our beliefs).
+
 ## Part 2: Who Gets a Different Diagnosis?
 
 Abstract instability becomes concrete when we ask which patients are affected.

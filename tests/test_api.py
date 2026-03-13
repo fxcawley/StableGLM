@@ -511,3 +511,48 @@ def test_from_ensemble():
     assert result["feature_names"] == ["f0", "f1", "f2", "f3"]
 
 
+def test_compare_to_bayesian():
+    """Test Bayesian posterior comparison."""
+    X, y = _make_data(n=80, d=4, seed=42)
+    rs = RashomonSet(
+        estimator="logistic",
+        epsilon=0.05,
+        epsilon_mode="percent_loss",
+        random_state=0,
+    ).fit(X, y)
+
+    result = rs.compare_to_bayesian(
+        n_samples=50,
+        confidence=0.90,
+        feature_names=["a", "b", "c", "d"],
+        random_state=42,
+    )
+
+    assert "bayesian_samples" in result
+    assert "bayesian_ci" in result
+    assert "bayesian_std" in result
+    assert "vic_samples" in result
+    assert "vic_intervals" in result
+    assert "comparison" in result
+    assert "epsilon_vs_chi2" in result
+
+    assert result["bayesian_samples"].shape == (50, 4)
+    assert result["bayesian_ci"].shape == (4, 2)
+    assert result["vic_intervals"].shape == (4, 2)
+
+    # Bayesian CIs should bracket theta_hat
+    for j in range(4):
+        assert result["bayesian_ci"][j, 0] <= result["theta_hat"][j]
+        assert result["theta_hat"][j] <= result["bayesian_ci"][j, 1]
+
+    # Comparison should have all features
+    assert len(result["comparison"]) == 4
+    for name in ["a", "b", "c", "d"]:
+        c = result["comparison"][name]
+        assert "bayesian_width" in c
+        assert "vic_width" in c
+        assert "vic_to_bayesian_ratio" in c
+        assert c["bayesian_width"] > 0
+        assert c["vic_width"] > 0
+
+

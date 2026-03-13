@@ -2648,6 +2648,154 @@ class RashomonSet:
             "divergence": divergence,
         }
 
+    def compare_to_bayesian(
+        self,
+        *,
+        n_samples: int = 500,
+        confidence: float = 0.90,
+        feature_names: Optional[list] = None,
+        random_state: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Compare Rashomon VIC intervals to Laplace-approximate Bayesian credible intervals.
+
+        Under a Gaussian prior N(0, (1/lambda)I) and the Laplace approximation,
+        the posterior is N(theta_hat, H_posterior^{-1}) where:
+
+            H_posterior = sum_i w_i x_i x_i^T + lambda*I
+
+        This is NOT the same as our objective's Hessian H = (1/n)*X^T W X + lambda*I.
+        The relationship is H_posterior = n*(H - lambda*I) + lambda*I = n*H - (n-1)*lambda*I.
+
+        The comparison reveals whether the Rashomon set (VIC intervals) is:
+        - Narrower than Bayesian: multiplicity at this epsilon is a subset of
+          what Bayesian uncertainty already captures
+        - Wider than Bayesian: the Rashomon set reveals genuine loss-surface
+          flatness beyond what posterior uncertainty explains
+        - Comparable: the two roughly agree, suggesting epsilon is well-calibrated
+          to the posterior scale
+
+        Parameters
+        ----------
+        n_samples : int
+            Samples from both the posterior and Rashomon set.
+        confidence : float
+            Confidence level for intervals (default 0.90).
+        feature_names : Optional[list]
+            Feature names.
+        random_state : Optional[int]
+            Seed.
+
+        Returns
+        -------
+        dict with:
+            - 'bayesian_samples': (n_samples, d) - posterior samples
+            - 'bayesian_ci': (d, 2) - marginal credible intervals
+            - 'bayesian_std': (d,) - marginal posterior std
+            - 'vic_samples': (n_samples, d) - Rashomon set samples
+            - 'vic_intervals': (d, 2) - VIC intervals at same confidence
+            - 'vic_std': (d,) - VIC std
+            - 'theta_hat': (d,) - MAP/MLE estimate
+            - 'feature_names': list
+            - 'confidence': float
+            - 'comparison': dict - per-feature comparison metrics
+            - 'posterior_precision': (d, d) - the posterior precision matrix
+            - 'epsilon_vs_chi2': dict - direct comparison of Rashomon radius to posterior radius
+        """
+        if not self._fitted:
+            raise RuntimeError("Call fit() first.")
+
+        d = self._d
+        n = self._n
+        lam = self._lambda
+        alpha = 1.0 - confidence
+        seed = self._seed if random_state is None else int(random_state)
+        rng = np.random.default_rng(seed)
+
+        # Compute the posterior precision: H_post = n*H - (n-1)*lam*I
+        H = self._hessian_matrix()
+        H_posterior = n * H - (n - 1) * lam * np.eye(d)
+        # Ensure positive definite (prior keeps it PD)
+        eigvals_post = np.linalg.eigvalsh(H_posterior)
+        if np.min(eigvals_post) < 1e-10:
+            H_posterior += (1e-8 - np.min(eigvals_post)) * np.eye(d)
+
+        Sigma_posterior = np.linalg.inv(H_posterior)
+
+        # Sample from Laplace posterior: N(theta_hat, Sigma_posterior)
+        L_post = np.linalg.cholesky(Sigma_posterior)
+        z_samples = rng.normal(size=(n_samples, d))
+        bayesian_samples = self._theta_hat[None, :] + z_samples @ L_post.T
+
+        # Bayesian marginal credible intervals
+        from scipy.stats import norm as _norm
+        z_crit = _norm.ppf(1.0 - alpha / 2)
+        posterior_std = np.sqrt(np.diag(Sigma_posterior))
+        bayesian_ci = np.stack([
+            self._theta_hat - z_crit * posterior_std,
+            self._theta_hat + z_crit * posterior_std,
+        ], axis=1)
+
+        # VIC from Rashomon set
+        vic = self.variable_importance_cloud(
+            n_samples=n_samples,
+            feature_names=feature_names,
+            random_state=seed,
+        )
+        vic_samples = vic["samples"]
+        q_lo = alpha / 2
+        q_hi = 1 - alpha / 2
+        vic_intervals = np.stack([
+            np.quantile(vic_samples, q_lo, axis=0),
+            np.quantile(vic_samples, q_hi, axis=0),
+        ], axis=1)
+        vic_std = np.std(vic_samples, axis=0)
+
+        # Per-feature comparison
+        names = vic["feature_names"]
+        comparison = {}
+        for j in range(d):
+            bayes_width = float(bayesian_ci[j, 1] - bayesian_ci[j, 0])
+            vic_width = float(vic_intervals[j, 1] - vic_intervals[j, 0])
+            ratio = vic_width / bayes_width if bayes_width > 1e-12 else float("inf")
+            comparison[names[j]] = {
+                "bayesian_width": bayes_width,
+                "vic_width": vic_width,
+                "vic_to_bayesian_ratio": ratio,
+                "bayesian_std": float(posterior_std[j]),
+                "vic_std": float(vic_std[j]),
+            }
+
+        # Direct geometric comparison: the Rashomon ellipsoid has
+        # "radius" 2*eps in the H-norm, while the posterior's (1-alpha)
+        # credible ellipsoid has "radius" chi2_{d,1-alpha} in the H_post-norm
+        eps = self._epsilon_value
+        rashomon_radius_sq = 2.0 * eps
+        if _HAS_SCIPY:
+            posterior_radius_sq = chi2.ppf(1.0 - alpha, df=d) / n
+        else:
+            posterior_radius_sq = float("nan")
+
+        epsilon_vs_chi2 = {
+            "rashomon_radius_sq": float(rashomon_radius_sq),
+            "posterior_radius_sq_per_n": float(posterior_radius_sq),
+            "rashomon_wider": float(rashomon_radius_sq) > float(posterior_radius_sq),
+        }
+
+        return {
+            "bayesian_samples": bayesian_samples,
+            "bayesian_ci": bayesian_ci,
+            "bayesian_std": posterior_std,
+            "vic_samples": vic_samples,
+            "vic_intervals": vic_intervals,
+            "vic_std": vic_std,
+            "theta_hat": self._theta_hat.copy(),
+            "feature_names": names,
+            "confidence": confidence,
+            "comparison": comparison,
+            "posterior_precision": H_posterior,
+            "epsilon_vs_chi2": epsilon_vs_chi2,
+        }
+
     @classmethod
     def from_ensemble(
         cls,

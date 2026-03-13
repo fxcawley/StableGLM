@@ -30,25 +30,34 @@ StableGLM supports three calibration modes:
 - `LR_alpha`: $\epsilon = \chi^2_{d,1-\alpha} / (2n)$ via Wilks' theorem
 - `LR_alpha_highdim`: high-dimensional correction (experimental)
 
-## Two Kinds of Uncertainty
+## Three Kinds of Uncertainty
 
-Standard statistical tools (bootstrap CIs, Bayesian posteriors, p-values) quantify
-**sampling uncertainty**: how much would the answer change if we drew a different dataset
-from the same distribution?
+Standard statistical tools quantify different aspects of model uncertainty:
 
-Rashomon set analysis quantifies **design-choice multiplicity**: how many qualitatively
-different models achieve nearly the same loss on *this* dataset?
+**Bootstrap CIs** measure **sampling uncertainty**: how much would $\hat\theta$ change
+if we drew a different dataset? Width shrinks as $O(1/\sqrt{n})$.
 
-These are orthogonal:
+**Bayesian posteriors** measure **epistemic uncertainty**: what is our belief distribution
+over $\theta$ given the data and prior? Under the Laplace approximation with a Gaussian
+prior, the posterior is an ellipsoid of the same shape as the Rashomon set but typically
+wider (it integrates over all plausible parameter values, not just near-optimal ones).
 
-| | Narrow bootstrap CIs | Wide bootstrap CIs |
+**Rashomon VIC intervals** measure **design-choice multiplicity**: how many qualitatively
+different models achieve loss within $\epsilon$ of the optimum? Width depends on $\epsilon$
+and the loss surface geometry, not on $n$ directly.
+
+The typical ordering is:
+
+$$\text{Bootstrap} \ll \text{VIC} \ll \text{Bayesian}$$
+
+| | Narrower VIC than Bayesian | Wider VIC than Bayesian |
 |---|---|---|
-| **Narrow VIC** | Stable: one clear best model | Uncertain but robust predictions |
-| **Wide VIC** | **Dangerous**: false confidence | Everything is unstable |
+| **Narrow bootstrap CIs** | Normal: standard tools suffice | Loss surface is pathologically flat |
+| **Wide bootstrap CIs** | All three agree: everything is uncertain | Rashomon set is enormous |
 
-The "narrow CIs + wide VIC" case is the most concerning because standard tools report
-confidence while the underlying predictions are arbitrary. The
-{doc}`case study <../examples/tutorial>` demonstrates this with a 4-11x width ratio.
+The {doc}`case study <../examples/tutorial>` demonstrates this ordering with a 4-11x
+VIC/bootstrap ratio and a 0.06-0.32x VIC/Bayesian ratio, showing VIC occupies the
+middle ground.
 
 ## Predictive Multiplicity
 
