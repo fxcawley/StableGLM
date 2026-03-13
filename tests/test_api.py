@@ -567,3 +567,52 @@ def test_compare_to_bayesian():
         assert c["vic_width"] > 0
 
 
+def test_fit_intercept_logistic():
+    """Test that fit_intercept=True works for logistic regression."""
+    X, y = _make_data(n=80, d=4, seed=42)
+    rs = RashomonSet(
+        estimator="logistic", fit_intercept=True, random_state=0
+    ).fit(X, y)
+
+    # coef_ should have d features (not d+1)
+    assert rs.coef_.shape == (4,)
+    assert isinstance(rs.intercept_, float)
+    assert rs.n_features_in_ == 4
+
+    # Internal theta has d+1 dimensions
+    assert rs._theta_hat.shape == (5,)
+    assert rs._d == 5
+
+    # Predict should accept original X shape
+    preds = rs.predict(X)
+    assert preds.shape == (80,)
+
+    # Ambiguity should work
+    amb = rs.ambiguity(X, threshold_mode="fixed", threshold_value=0.5)
+    assert 0 <= amb["ambiguity_rate"] <= 1
+
+    # Score
+    acc = rs.score(X, y)
+    assert 0 <= acc <= 1
+
+
+def test_fit_intercept_linear():
+    """Test fit_intercept for linear regression."""
+    rng = np.random.default_rng(42)
+    n, d = 80, 3
+    X = rng.normal(size=(n, d))
+    y = 2.0 + X @ np.array([1.0, -1.0, 0.5]) + 0.1 * rng.normal(size=n)
+
+    # Use weak regularization so intercept is not shrunk to zero
+    rs = RashomonSet(
+        estimator="linear", fit_intercept=True, C=100.0, random_state=0
+    ).fit(X, y)
+
+    assert rs.coef_.shape == (3,)
+    assert rs.n_features_in_ == 3
+    # Intercept should be in the right ballpark (regularization shrinks it)
+    assert abs(rs.intercept_) > 0.1
+    # R^2 should be reasonable
+    assert rs.score(X, y) > 0.5
+
+

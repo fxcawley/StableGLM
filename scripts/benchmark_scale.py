@@ -181,6 +181,18 @@ if __name__ == "__main__":
         print(f"Adult dataset not found at {data_path}")
         sys.exit(1)
 
+    # Mid-range: Breast Cancer full features (n=569, d=30)
+    print(f"\n{'='*60}")
+    print("BREAST CANCER FULL (n=569, d=30)")
+    print(f"{'='*60}")
+    from sklearn.datasets import load_breast_cancer
+    bc = load_breast_cancer()
+    X_bc = StandardScaler().fit_transform(bc.data)
+    y_bc = bc.target.astype(float)
+    print(f"  Shape: n={X_bc.shape[0]}, d={X_bc.shape[1]}")
+    bc_results = run_scale_experiment(X_bc, y_bc)
+    bc_tightness = run_tightness_analysis(X_bc, y_bc)
+
     # Full-scale Adult
     X_full, y_full = load_adult(data_path)
     scale_results = run_scale_experiment(X_full, y_full)

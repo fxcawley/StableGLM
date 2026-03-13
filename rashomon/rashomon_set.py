@@ -213,6 +213,11 @@ class RashomonSet:
         - If epsilon_mode == "LR_alpha": interpreted as alpha in (0,1) (Chi2 significance level).
     epsilon_mode : {"percent_loss", "LR_alpha", "LR_alpha_highdim"}
         Calibration mode for epsilon.
+    fit_intercept : bool
+        If True, a column of ones is prepended to X internally and the
+        intercept is included in the Rashomon set analysis. The intercept
+        coefficient is separated out in ``intercept_`` and excluded from
+        ``coef_``. Default False (no intercept).
     sampler : {"ellipsoid", "hitandrun"}
         Sampling backend. "ellipsoid" is faster for lower dimensions; "hitandrun" is more robust
         for complex sets or higher dimensions.
@@ -251,6 +256,7 @@ class RashomonSet:
         C: float = 1.0,
         epsilon: float = 0.02,
         epsilon_mode: str = "percent_loss",
+        fit_intercept: bool = False,
         sampler: str = "ellipsoid",
         measure: str = "lr",
         random_state: Optional[int] = None,
@@ -265,6 +271,7 @@ class RashomonSet:
         self.C = float(C)
         self.epsilon = float(epsilon)
         self.epsilon_mode = epsilon_mode
+        self.fit_intercept = bool(fit_intercept)
         self.sampler = sampler
         self.measure = measure
         self.random_state = random_state
@@ -277,6 +284,7 @@ class RashomonSet:
         self._fitted = False
         self._n = 0
         self._d = 0
+        self._d_original = 0  # original feature count (before intercept column)
         self._seed = int(random_state) if random_state is not None else None
 
         # Learned state
@@ -301,6 +309,10 @@ class RashomonSet:
         self._last_sample_diagnostics: Optional[Dict[str, Any]] = None
 
     # ------------------------------ Public API ------------------------------
+    def _augment_X(self, X: Array) -> Array:
+        """Prepend a column of ones for the intercept."""
+        return np.column_stack([np.ones(X.shape[0], dtype=float), X])
+
     def fit(self, X: Array, y: Array) -> RashomonSet:
         """Fit the base GLM and prepare diagnostics and operators.
 
@@ -310,6 +322,9 @@ class RashomonSet:
           Newton/gradient-based updates (sufficient for small tests).
         - L(θ) matches proposal: averaged loss + (λ/2)||θ||^2.
         - Guardrails enforce λ>0 and reasonable conditioning unless overridden.
+        - When fit_intercept=True, a column of ones is prepended to X internally.
+          The intercept is part of the full parameter vector θ and is included in
+          all Rashomon set computations. Access via ``intercept_`` property.
         """
         self._oracle = None
         X = np.asarray(X)
@@ -318,6 +333,9 @@ class RashomonSet:
             raise ValueError("X must be 2D array")
         if y.ndim != 1 or y.shape[0] != X.shape[0]:
             raise ValueError("y must be 1D with same n as X")
+        self._d_original = X.shape[1]
+        if self.fit_intercept:
+            X = self._augment_X(X)
         n, d = X.shape
         self._n, self._d = n, d
         lam = 1.0 / self.C
@@ -483,12 +501,21 @@ class RashomonSet:
         return self._oracle.contains_many(Theta, XTheta=XTheta, atol=float(atol))
 
     # --------------------------- Predictive API ----------------------------
+    def _prepare_X(self, X: Array) -> Array:
+        """Validate and augment X for prediction/analysis methods."""
+        X = np.asarray(X)
+        if self.fit_intercept:
+            if X.ndim != 2 or X.shape[1] != self._d_original:
+                raise ValueError(f"X must be 2D with {self._d_original} features")
+            return self._augment_X(X)
+        if X.ndim != 2 or X.shape[1] != self._d:
+            raise ValueError(f"X must be 2D with {self._d} features")
+        return X
+
     def decision_function(self, X: Array) -> Array:
         if not self._fitted or self._theta_hat is None:
             raise RuntimeError("Call fit() first.")
-        X = np.asarray(X)
-        if X.ndim != 2 or X.shape[1] != self._d:
-            raise ValueError("X must be 2D with d features")
+        X = self._prepare_X(X)
         return (X @ self._theta_hat).astype(float, copy=False)
 
     def predict_proba(self, X: Array) -> Array:
@@ -519,9 +546,7 @@ class RashomonSet:
             raise NotImplementedError("probability_bands is only defined for logistic models")
         if not self._fitted:
             raise RuntimeError("Call fit() first.")
-        X = np.asarray(X)
-        if X.ndim != 2 or X.shape[1] != self._d:
-            raise ValueError("X must be 2D with d features")
+        X = self._prepare_X(X)
         out = np.empty((X.shape[0], 2), dtype=float)
         for i in range(X.shape[0]):
             s = X[i]
@@ -831,13 +856,24 @@ class RashomonSet:
     def coef_(self) -> Array:
         if not self._fitted or self._theta_hat is None:
             raise RuntimeError("Call fit() first.")
+        if self.fit_intercept:
+            return self._theta_hat[1:]
         return self._theta_hat
+
+    @property
+    def intercept_(self) -> float:
+        """Intercept term (0.0 if fit_intercept=False)."""
+        if not self._fitted or self._theta_hat is None:
+            raise RuntimeError("Call fit() first.")
+        if self.fit_intercept:
+            return float(self._theta_hat[0])
+        return 0.0
 
     @property
     def n_features_in_(self) -> int:
         if not self._fitted:
             raise RuntimeError("Call fit() first.")
-        return int(self._d)
+        return int(self._d_original) if self.fit_intercept else int(self._d)
 
     # --------------------------- Sklearn-style utils ------------------------
     def get_params(self, deep: bool = True) -> Dict[str, Any]:
@@ -2162,7 +2198,7 @@ class RashomonSet:
         if not self._fitted or self._theta_hat is None or self._epsilon_value is None:
             raise RuntimeError("Call fit() first")
 
-        X = np.asarray(X)
+        X = self._prepare_X(X)
         n = X.shape[0]
 
         # Compute threshold
@@ -2249,7 +2285,7 @@ class RashomonSet:
         if not self._fitted or self._theta_hat is None or self._epsilon_value is None:
             raise RuntimeError("Call fit() first")
 
-        X = np.asarray(X)
+        X = self._prepare_X(X)
         n = X.shape[0]
         rng = np.random.default_rng(random_state)
 

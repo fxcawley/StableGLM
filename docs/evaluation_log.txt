@@ -1,0 +1,63 @@
+
+============================================================
+BREAST CANCER FULL (n=569, d=30)
+============================================================
+  Shape: n=569, d=30
+
+============================================================
+SCALE EXPERIMENT: n=569, d=30
+============================================================
+  fit:              0.004s
+  diagnostics:      0.001s
+    L_hat=0.683485, cond(H)=N/A
+  ellipsoid 500:    0.011s
+  hitandrun 200:    0.945s
+  ambiguity (500):  0.023s  rate=100.0%
+  discrepancy:      0.027s  bound=100.0%
+  VIC (200):        0.003s
+  capacity:         0.000s  log_vol=-127.8
+  est. memory:      0.3 MB (data + samples)
+
+============================================================
+ELLIPSOID TIGHTNESS ANALYSIS: n=569, d=30
+============================================================
+  eps=0.005: cert=0.0866  empirical=0.0101  ratio=8.60x  fidelity=100%
+  eps=0.010: cert=0.1225  empirical=0.0175  ratio=6.99x  fidelity=100%
+  eps=0.020: cert=0.1733  empirical=0.0299  ratio=5.80x  fidelity=100%
+  eps=0.030: cert=0.2122  empirical=0.0403  ratio=5.27x  fidelity=100%
+  eps=0.050: cert=0.2740  empirical=0.0600  ratio=4.57x  fidelity=100%
+  eps=0.100: cert=0.3875  empirical=0.1001  ratio=3.87x  fidelity=100%
+
+============================================================
+SCALE EXPERIMENT: n=30162, d=104
+============================================================
+  fit:              0.096s
+  diagnostics:      0.086s
+    L_hat=0.691700, cond(H)=N/A
+  ellipsoid 500:    0.023s
+  hitandrun 200:    26.193s
+  ambiguity (500):  4.277s  rate=100.0%
+  discrepancy:      6.123s  bound=100.0%
+  VIC (200):        0.004s
+  capacity:         0.010s  log_vol=-501.8
+  est. memory:      25.9 MB (data + samples)
+
+============================================================
+ELLIPSOID TIGHTNESS ANALYSIS: n=30162, d=104
+============================================================
+  eps=0.005: cert=0.0582  empirical=0.0015  ratio=37.65x  fidelity=100%
+  eps=0.010: cert=0.0824  empirical=0.0021  ratio=39.42x  fidelity=100%
+  eps=0.020: cert=0.1165  empirical=0.0034  ratio=34.59x  fidelity=100%
+  eps=0.030: cert=0.1426  empirical=0.0047  ratio=30.22x  fidelity=100%
+  eps=0.050: cert=0.1841  empirical=0.0073  ratio=25.39x  fidelity=100%
+  eps=0.100: cert=0.2604  empirical=0.0132  ratio=19.77x  fidelity=100%
+
+============================================================
+SCALING COMPARISON
+============================================================
+  n=  1000, d=104: fit=0.014s  ell200=0.004s  hr50=0.288s
+  n=  5000, d=104: fit=0.056s  ell200=0.008s  hr50=1.310s
+  n= 10000, d=104: fit=0.040s  ell200=0.010s  hr50=2.062s
+  n= 30162, d=104: fit=0.087s  ell200=0.021s  hr50=5.222s
+
+Done.
