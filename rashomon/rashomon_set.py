@@ -1843,22 +1843,27 @@ class RashomonSet:
         y: Array,
         *,
         n_permutations: int = 20,
+        score_fn: str = "loss",
         random_state: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """Analytic MCR bounds via first-order relaxation of permutation loss.
+        """Analytic MCR bounds via first-order relaxation of permutation importance.
 
-        Computes the gradient of the loss-based permutation importance
-        I_j(theta) = L_perm_j(theta) - L(theta) at theta_hat, then uses
-        the hacking interval formula for analytic MCR bounds:
+        Computes the gradient of permutation importance I_j(theta) at theta_hat,
+        then uses the hacking interval formula for analytic MCR bounds:
 
             MCR_j^{min/max} = I_j(theta_hat) -/+ sqrt(2*eps) * ||grad_I_j||_{H^{-1}}
 
-        Uses the smooth loss function (logistic loss / MSE) rather than
-        accuracy, so the gradient is well-defined. For logistic regression,
-        the gradient is computed analytically:
+        Two scoring functions are available:
 
-            grad_theta I_j = (1/n) X_perm^T (sigma(X_perm theta) - y)
-                           - (1/n) X^T (sigma(X theta) - y)
+        - ``"loss"``: importance = increase in log-loss (logistic) or MSE (linear)
+          when feature j is permuted. This is the natural choice since the
+          Rashomon set is defined over the loss function.
+        - ``"probability"``: (logistic only) importance = mean absolute change in
+          predicted probability sigma(X theta) when feature j is permuted. This
+          is smooth (unlike accuracy) and more interpretable to practitioners
+          who think in terms of probability shifts.
+
+        Both are smooth in theta, giving well-defined analytic gradients.
 
         .. note::
 
@@ -1878,6 +1883,10 @@ class RashomonSet:
             Target vector.
         n_permutations : int
             Number of permutation replicates to estimate I_j and grad_I_j.
+        score_fn : {"loss", "probability"}
+            Scoring function for importance. "loss" uses log-loss/MSE increase;
+            "probability" uses mean absolute change in predicted probability
+            (logistic only).
         random_state : Optional[int]
             Random seed.
 
@@ -1886,8 +1895,9 @@ class RashomonSet:
         dict with:
             - 'mcr_min_analytic': array (d,) - lower bounds
             - 'mcr_max_analytic': array (d,) - upper bounds
-            - 'importance_at_hat': array (d,) - importance at theta_hat (loss increase)
+            - 'importance_at_hat': array (d,) - importance at theta_hat
             - 'grad_norms': array (d,) - ||grad_I_j||_{H^{-1}} per feature
+            - 'score_fn': str - which scoring function was used
         """
         if not self._fitted:
             raise RuntimeError("Call fit() first.")
@@ -1895,56 +1905,78 @@ class RashomonSet:
         y = np.asarray(y, dtype=float)
         n, d = X.shape
 
+        if score_fn == "probability" and self.estimator != "logistic":
+            raise ValueError("score_fn='probability' is only available for logistic regression")
+
         seed = self._seed if random_state is None else int(random_state)
         rng = np.random.default_rng(seed)
         theta_hat = self._theta_hat
         eps = self._epsilon_value
-        lam = self._lambda
 
         importance_at_hat = np.zeros(d, dtype=float)
         grad_norms = np.zeros(d, dtype=float)
 
-        # Base loss at theta_hat (data term only, no regularization --
-        # regularization cancels in the importance difference)
-        if self.estimator == "logistic":
-            z_base = X @ theta_hat
-            base_loss = float(np.mean(np.logaddexp(0.0, z_base) - y * z_base))
-            p_base = _sigmoid(z_base)
-            # Gradient of base loss w.r.t. theta (data term only)
-            grad_base = (X.T @ (p_base - y)) / n
-        else:
-            pred_base = X @ theta_hat
-            resid_base = y - pred_base
-            base_loss = float(0.5 * np.mean(resid_base ** 2))
-            # Gradient: -(1/n) X^T (y - X theta)
-            grad_base = -(X.T @ resid_base) / n
+        z_base = X @ theta_hat
 
-        for j in range(d):
-            # Average importance and gradient over permutations
-            imp_sum = 0.0
-            grad_sum = np.zeros(d, dtype=float)
+        if score_fn == "loss":
+            # Loss-based importance: L_perm - L
+            if self.estimator == "logistic":
+                base_score = float(np.mean(np.logaddexp(0.0, z_base) - y * z_base))
+                p_base = _sigmoid(z_base)
+                grad_base = (X.T @ (p_base - y)) / n
+            else:
+                resid_base = y - z_base
+                base_score = float(0.5 * np.mean(resid_base ** 2))
+                grad_base = -(X.T @ resid_base) / n
 
-            for p in range(n_permutations):
-                Xp = X.copy()
-                rng.shuffle(Xp[:, j])
-
-                if self.estimator == "logistic":
+            for j in range(d):
+                imp_sum = 0.0
+                grad_sum = np.zeros(d, dtype=float)
+                for p in range(n_permutations):
+                    Xp = X.copy()
+                    rng.shuffle(Xp[:, j])
                     z_perm = Xp @ theta_hat
-                    perm_loss = float(np.mean(np.logaddexp(0.0, z_perm) - y * z_perm))
+                    if self.estimator == "logistic":
+                        perm_score = float(np.mean(np.logaddexp(0.0, z_perm) - y * z_perm))
+                        p_perm = _sigmoid(z_perm)
+                        grad_perm = (Xp.T @ (p_perm - y)) / n
+                    else:
+                        resid_perm = y - z_perm
+                        perm_score = float(0.5 * np.mean(resid_perm ** 2))
+                        grad_perm = -(Xp.T @ resid_perm) / n
+                    imp_sum += (perm_score - base_score)
+                    grad_sum += (grad_perm - grad_base)
+                importance_at_hat[j] = imp_sum / n_permutations
+                grad_norms[j] = self._hinv_norm(grad_sum / n_permutations)
+
+        elif score_fn == "probability":
+            # Probability-based importance: mean |sigma(X theta) - sigma(X_perm theta)|
+            p_base = _sigmoid(z_base)
+            # Gradient of sigma(z) w.r.t. theta: sigma'(z) * x = p(1-p) * x
+            w_base = p_base * (1.0 - p_base)  # shape (n,)
+
+            for j in range(d):
+                imp_sum = 0.0
+                grad_sum = np.zeros(d, dtype=float)
+                for p in range(n_permutations):
+                    Xp = X.copy()
+                    rng.shuffle(Xp[:, j])
+                    z_perm = Xp @ theta_hat
                     p_perm = _sigmoid(z_perm)
-                    grad_perm = (Xp.T @ (p_perm - y)) / n
-                else:
-                    pred_perm = Xp @ theta_hat
-                    resid_perm = y - pred_perm
-                    perm_loss = float(0.5 * np.mean(resid_perm ** 2))
-                    grad_perm = -(Xp.T @ resid_perm) / n
-
-                imp_sum += (perm_loss - base_loss)
-                grad_sum += (grad_perm - grad_base)
-
-            importance_at_hat[j] = imp_sum / n_permutations
-            grad_Ij = grad_sum / n_permutations
-            grad_norms[j] = self._hinv_norm(grad_Ij)
+                    diff = p_perm - p_base  # signed difference
+                    abs_diff = np.abs(diff)
+                    imp_sum += float(np.mean(abs_diff))
+                    # Gradient of mean|sigma(Xp theta) - sigma(X theta)| w.r.t. theta
+                    # d/dtheta |f| = sign(f) * f' where f = sigma(Xp theta) - sigma(X theta)
+                    # f' = sigma'(Xp theta) * Xp - sigma'(X theta) * X
+                    sign_diff = np.sign(diff)
+                    w_perm = p_perm * (1.0 - p_perm)
+                    grad_perm = (Xp.T @ (sign_diff * w_perm) - X.T @ (sign_diff * w_base)) / n
+                    grad_sum += grad_perm
+                importance_at_hat[j] = imp_sum / n_permutations
+                grad_norms[j] = self._hinv_norm(grad_sum / n_permutations)
+        else:
+            raise ValueError(f"Unknown score_fn: {score_fn}. Use 'loss' or 'probability'.")
 
         delta = np.sqrt(2.0 * eps) * grad_norms
         mcr_min = importance_at_hat - delta
@@ -1955,6 +1987,7 @@ class RashomonSet:
             "mcr_max_analytic": mcr_max,
             "importance_at_hat": importance_at_hat,
             "grad_norms": grad_norms,
+            "score_fn": score_fn,
         }
 
     def shapley_vic(
@@ -2002,6 +2035,14 @@ class RashomonSet:
         if not self._fitted:
             raise RuntimeError("Call fit() first.")
         X = np.asarray(X, dtype=float)
+
+        if self.estimator == "logistic":
+            warnings.warn(
+                "shapley_vic uses the linear SHAP formula phi_j = theta_j * (x_j - E[x_j]), "
+                "which is exact for linear regression but only an approximation in log-odds "
+                "space for logistic regression. Interpret with caution.",
+                stacklevel=2,
+            )
 
         # Sample from Rashomon set
         backend = sampler if sampler is not None else self.sampler
