@@ -48,7 +48,7 @@ These are orthogonal:
 
 The "narrow CIs + wide VIC" case is the most concerning because standard tools report
 confidence while the underlying predictions are arbitrary. The
-{doc}`case study <../examples/tutorial>` demonstrates this with a 85-230x width ratio.
+{doc}`case study <../examples/tutorial>` demonstrates this with a 4-11x width ratio.
 
 ## Predictive Multiplicity
 

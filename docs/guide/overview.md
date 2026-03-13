@@ -31,8 +31,9 @@ perform nearly as well?" These two quantities can diverge by orders of magnitude
 can have narrow CIs (well-identified parameters) while the Rashomon set contains models with
 opposite coefficient signs (massive design-choice multiplicity).
 
-The {doc}`case study <../examples/tutorial>` demonstrates a 85-230x width ratio between
-bootstrap CIs and Rashomon intervals on a standard medical dataset.
+The {doc}`case study <../examples/tutorial>` demonstrates a 4-11x width ratio between
+bootstrap CIs and Rashomon intervals on a standard medical dataset, with an epsilon
+sensitivity analysis showing how the results depend on the tolerance parameter.
 
 ## Supported Models
 

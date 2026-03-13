@@ -1,12 +1,12 @@
 # Case Study: When Equally-Good Models Disagree
 
-Standard model evaluation stops at accuracy. A logistic regression scores 95% on held-out data,
-bootstrap confidence intervals are tight, and the model ships. But what if an equally-accurate
-model gives the *opposite* prediction for 1 in 10 patients?
+Standard model evaluation stops at accuracy. A logistic regression scores well on held-out
+data, bootstrap confidence intervals are tight, and the model ships. But what if an
+equally-accurate model gives a *different* prediction for 1 in 5 patients?
 
 This case study demonstrates a concrete failure mode of single-model thinking using the
 Wisconsin Breast Cancer dataset, and shows how Rashomon set analysis exposes instability
-that bootstrap CIs, cross-validation, and standard interpretability tools completely miss.
+that bootstrap CIs and standard interpretability tools miss.
 
 ## Setup
 
@@ -43,7 +43,7 @@ rs = RashomonSet(
 ).fit(X_train, y_train)
 ```
 
-## Part 1: Bootstrap Says "All Clear"
+## Part 1: Bootstrap CIs vs. Rashomon Intervals
 
 The standard next step is to assess parameter uncertainty via bootstrap resampling.
 StableGLM computes both bootstrap CIs and Rashomon set intervals in one call:
@@ -59,34 +59,35 @@ comp = rs.compare_to_bootstrap(
 )
 ```
 
-The results are jarring:
-
 | Feature | Bootstrap 90% CI | Rashomon 90% Interval | Width Ratio |
 |:--------|:----------------:|:---------------------:|:-----------:|
-| radius | [-0.116, -0.103] | [-1.321, +1.096] | **185x** |
-| texture | [-0.083, -0.055] | [-1.530, +1.198] | **96x** |
-| perimeter | [-0.117, -0.104] | [-1.383, +1.165] | **209x** |
-| area | [-0.112, -0.100] | [-1.545, +1.201] | **220x** |
-| smoothness | [-0.066, -0.041] | [-1.524, +1.070] | **104x** |
-| compactness | [-0.092, -0.074] | [-1.300, +1.345] | **142x** |
-| concavity | [-0.110, -0.093] | [-1.384, +1.289] | **159x** |
-| concave_pts | [-0.122, -0.112] | [-1.312, +1.156] | **230x** |
-| symmetry | [-0.064, -0.040] | [-1.294, +1.539] | **120x** |
-| fractal_dim | [-0.003, +0.024] | [-1.225, +1.125] | **85x** |
+| radius | [-0.116, -0.103] | [-0.166, -0.055] | **8.5x** |
+| texture | [-0.083, -0.055] | [-0.132, -0.015] | **4.1x** |
+| perimeter | [-0.117, -0.104] | [-0.165, -0.053] | **9.2x** |
+| area | [-0.112, -0.100] | [-0.174, -0.047] | **10.1x** |
+| smoothness | [-0.066, -0.041] | [-0.119, -0.001] | **4.7x** |
+| compactness | [-0.092, -0.074] | [-0.138, -0.019] | **6.3x** |
+| concavity | [-0.110, -0.093] | [-0.158, -0.036] | **7.3x** |
+| concave_pts | [-0.122, -0.112] | [-0.173, -0.058] | **10.7x** |
+| symmetry | [-0.064, -0.040] | [-0.105, +0.019] | **5.2x** |
+| fractal_dim | [-0.003, +0.024] | [-0.045, +0.056] | **3.7x** |
 
 ![Bootstrap CIs vs Rashomon VIC intervals](../_static/bootstrap_vs_vic.png)
 
-**What this means.** Bootstrap says `concave_pts` has a coefficient of about -0.117, known to
-within +/-0.005. The Rashomon set says: there exist models scoring within 3% of the optimum
-where that same coefficient is +1.16 or -1.31. The bootstrap-certified "tight" estimate is
-an artifact of the optimizer's single path through parameter space.
+The Rashomon intervals are 4-11x wider than bootstrap CIs. These are not two estimates
+of the same quantity. Bootstrap CIs answer: *"How uncertain are we about the best-fit
+parameters given sampling noise?"* The Rashomon set answers: *"How many different
+parameter vectors achieve loss within 3% of the optimum?"*
 
-These are not two ways of measuring the same thing. Bootstrap CIs answer: *"How uncertain
-are we about the best-fit parameters given sampling noise?"* The Rashomon set answers a
-different question: *"How many qualitatively different models perform nearly as well?"*
-The width ratio quantifies the gap between these two questions. A ratio of 230x for
-`concave_pts` means the space of good models is 230 times wider than statistical uncertainty
-would suggest.
+The gap between them is informative: for `concave_pts`, bootstrap says the coefficient
+is known to within +/-0.005, but the Rashomon set contains models where it ranges from
+-0.173 to -0.058 -- a 10.7x wider range. Note that `symmetry` has a VIC interval
+crossing zero ([-0.105, +0.019]), meaning some near-optimal models assign it opposite sign.
+
+**Important caveat.** The width ratio depends on both $\epsilon$ and $n$. Bootstrap CIs
+shrink as $O(1/\sqrt{n})$ while Rashomon intervals for fixed $\epsilon$ do not. The ratios
+reported here are specific to this dataset (n=398) and tolerance ($\epsilon$ = 3%). See the
+[sensitivity analysis](#sensitivity-to-epsilon) below for how the results change with $\epsilon$.
 
 ## Part 2: Who Gets a Different Diagnosis?
 
@@ -97,13 +98,13 @@ gives a different classification than the point estimate:
 ```python
 amb = rs.ambiguity(X_test, threshold_mode="fixed", threshold_value=0.5)
 print(f"Ambiguous: {amb['n_ambiguous']}/{len(X_test)} ({amb['ambiguity_rate']:.1%})")
-# Ambiguous: 18/171 (10.5%)
+# Ambiguous: 39/171 (22.8%)
 ```
 
-18 out of 171 test patients receive a diagnosis that depends on which equally-good model
+39 out of 171 test patients receive a diagnosis that depends on which equally-good model
 the clinician happens to use. For these patients, the margin interval straddles the
-decision threshold -- meaning the model's prediction is not a property of the data,
-but of an arbitrary optimization choice.
+decision threshold -- meaning the prediction is not a property of the data alone,
+but of the optimizer's particular solution.
 
 ![Predictive ambiguity across test patients](../_static/tutorial_ambiguity.png)
 
@@ -111,22 +112,20 @@ Red points are patients whose margin intervals cross the decision boundary. Thei
 bars show the range of predictions across equally-good models. Green points have stable
 diagnoses regardless of which model is chosen.
 
-**Discrepancy** goes further and measures worst-case disagreement:
+**Discrepancy** measures worst-case pairwise disagreement:
 
 ```python
 disc = rs.discrepancy(X_test, n_samples=200, n_pairs=200, random_state=42)
 print(f"Max pair disagreement: {disc['max_pair_disagreement']:.1%}")
-# Max pair disagreement: 87.1%
+# Max pair disagreement: 7.6%
 ```
 
-Two models that both achieve near-optimal loss can disagree on **87% of test patients**.
-This is not pathological. It reflects the geometric reality of the loss surface:
-many diverse parameter vectors land in the same loss-level set.
+Two models that both achieve near-optimal loss can disagree on **7.6%** of test patients.
 
-## Part 3: Which Features Are Driving This?
+## Part 3: Which Features Are Substitutable?
 
 The Variable Importance Cloud (VIC) shows the distribution of each coefficient across the
-Rashomon set, rather than a single point estimate:
+Rashomon set:
 
 ```python
 rs.plot_vic(n_samples=300, feature_names=feature_names, random_state=42)
@@ -134,13 +133,8 @@ rs.plot_vic(n_samples=300, feature_names=feature_names, random_state=42)
 
 ![Variable Importance Cloud](../_static/tutorial_vic.png)
 
-Unlike a confidence interval (which shrinks with more data), VIC intervals reflect the
-**geometry of near-optimal models**. A wide VIC for `perimeter` means there are many
-high-performing models that weight `perimeter` anywhere from strongly negative to strongly
-positive.
-
-**Model Class Reliance (MCR)** formalizes this by computing the min and max
-permutation importance across the Rashomon set:
+**Model Class Reliance (MCR)** computes the min and max permutation importance across
+the Rashomon set (Fisher, Rudin, Dominici 2019):
 
 ```python
 mcr = rs.model_class_reliance(
@@ -152,36 +146,69 @@ mcr = rs.model_class_reliance(
 
 | Feature | MCR- | Mean | MCR+ |
 |:--------|-----:|-----:|-----:|
-| radius | -0.101 | +0.047 | +0.199 |
-| texture | -0.104 | +0.033 | +0.198 |
-| perimeter | -0.340 | +0.034 | +0.327 |
-| area | -0.282 | +0.031 | +0.266 |
-| smoothness | -0.115 | +0.006 | +0.147 |
-| compactness | -0.130 | +0.052 | +0.275 |
-| concavity | -0.277 | -0.007 | +0.197 |
-| concave_pts | -0.223 | +0.026 | +0.269 |
-| symmetry | -0.103 | -0.013 | +0.135 |
-| fractal_dim | -0.052 | +0.011 | +0.072 |
+| radius | -0.006 | +0.024 | +0.050 |
+| texture | -0.004 | +0.021 | +0.050 |
+| perimeter | -0.005 | +0.022 | +0.054 |
+| area | -0.006 | +0.019 | +0.047 |
+| smoothness | -0.010 | +0.006 | +0.027 |
+| compactness | -0.006 | +0.011 | +0.046 |
+| concavity | -0.005 | +0.015 | +0.066 |
+| concave_pts | -0.006 | +0.026 | +0.061 |
+| symmetry | -0.009 | +0.002 | +0.017 |
+| fractal_dim | -0.012 | +0.002 | +0.022 |
 
-**Every feature has MCR- < 0.** For every one of these features, there exists a
-near-optimal model where removing that feature *improves* accuracy. No feature is
-indispensable. This is the hallmark of a problem with high predictive multiplicity:
-the features carry redundant information, and the optimizer's particular solution is
-one of many valid decompositions.
+**Every feature has MCR- < 0 (or near zero).** For every feature, there exists a
+near-optimal model where removing it does not hurt performance. No single feature is
+indispensable. The features carry correlated information, and the optimizer's particular
+decomposition into coefficient weights is one of many valid solutions.
+
+(sensitivity-to-epsilon)=
+## Sensitivity to Epsilon
+
+The Rashomon set's size -- and therefore all derived metrics -- depends on the user-chosen
+tolerance $\epsilon$. This is not a bug; it is the fundamental parameter of the analysis.
+A practitioner must choose what "nearly as good" means for their application.
+
+Here is how the key metrics change as $\epsilon$ varies from 0.5% to 10% loss tolerance:
+
+| $\epsilon$ | Ambiguity | Max Discrepancy | Mean VIC Width |
+|:----------:|:---------:|:---------------:|:--------------:|
+| 0.005 | 8.8% | 2.9% | 0.045 |
+| 0.010 | 12.3% | 4.7% | 0.066 |
+| 0.020 | 17.5% | 7.0% | 0.095 |
+| **0.030** | **22.8%** | **7.6%** | **0.117** |
+| 0.050 | 33.9% | 8.8% | 0.151 |
+| 0.100 | 60.8% | 14.0% | 0.214 |
+
+![Epsilon sensitivity](../_static/epsilon_sensitivity.png)
+
+All metrics grow monotonically with $\epsilon$. The choice of $\epsilon$ determines
+the "bar" for what counts as a good model:
+
+- **$\epsilon$ = 0.5%** (strict): Only models very close to the optimum. Even here,
+  8.8% of patients have ambiguous diagnoses.
+- **$\epsilon$ = 3%** (moderate): The tutorial default. A model that scores 97% as well
+  as the best. 22.8% ambiguity.
+- **$\epsilon$ = 10%** (permissive): A model that scores 90% as well. Majority of
+  patients become ambiguous.
+
+The $\epsilon$ that matters depends on the application. In medical diagnosis, a model
+within 1% of the best is arguably "just as good." In credit scoring, the regulatory
+tolerance may be larger.
 
 ## Implications
 
-**For practitioners:** A model that "passes" standard validation (good accuracy, tight CIs,
-significant p-values) may still exhibit massive predictive instability. The 10.5% ambiguity
-rate found here means that roughly 1 in 10 diagnostic recommendations is an artifact of
-model selection rather than a property of the patient's data. Standard tools do not
-detect this.
+**For practitioners:** Even at a strict 0.5% tolerance, nearly 1 in 10 diagnoses is
+unstable. At the moderate 3% level, it is 1 in 5. Standard evaluation (accuracy, CIs,
+p-values) does not reveal this because it measures sampling uncertainty, not the
+multiplicity of near-optimal solutions.
 
-**For auditors:** If a regulatory body asks "would a different but equally-valid model give
-a different answer?", the answer is yes for 10.5% of patients, and the worst-case
-disagreement rate between two valid models is 87%. This is information that bootstrap
-CIs cannot provide because they measure the wrong kind of uncertainty.
+**For auditors:** The epsilon sensitivity table provides a concrete tool for regulatory
+review. Rather than asking "is this model accurate?", ask "at what loss tolerance do
+predictions become unstable for more than X% of the population?"
 
-**For researchers:** The 85-230x width ratio between bootstrap CIs and Rashomon intervals
-demonstrates that sampling uncertainty and design-choice multiplicity are orthogonal axes
-of model instability. Any interpretability analysis that reports only one is incomplete.
+**For researchers:** The 4-11x width ratio between bootstrap CIs and Rashomon intervals
+demonstrates that the two measure different axes of uncertainty. The ratio depends on
+$\epsilon$ and $n$, but even at strict tolerances and moderate sample sizes, the gap
+is substantive. The key question for a given application is not "how big is the ratio?"
+but "is there ambiguity at a tolerance I consider acceptable?"

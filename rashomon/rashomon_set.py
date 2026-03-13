@@ -15,6 +15,7 @@ except Exception:  # pragma: no cover
 
 try:  # optional: scipy for chi2 quantiles
     from scipy.stats import chi2  # type: ignore
+    from scipy.linalg import solve_triangular  # type: ignore
     _HAS_SCIPY = True
 except Exception:  # pragma: no cover
     _HAS_SCIPY = False
@@ -277,8 +278,6 @@ class RashomonSet:
         self._n = 0
         self._d = 0
         self._seed = int(random_state) if random_state is not None else None
-        if self._seed is not None:
-            np.random.seed(self._seed)
 
         # Learned state
         self._theta_hat: Optional[Array] = None
@@ -662,9 +661,12 @@ class RashomonSet:
         radii = rng.random(n_samples) ** (1.0 / d)
         scaled_vecs = scale * radii[:, None] * unit_vecs
 
-        # Solve L z = y for each sample (still sequential but much faster)
+        # Solve L z = y for each sample (exploit triangular structure)
         for i in range(n_samples):
-            z = np.linalg.solve(L, scaled_vecs[i])
+            if _HAS_SCIPY:
+                z = solve_triangular(L, scaled_vecs[i], lower=True)
+            else:
+                z = np.linalg.solve(L, scaled_vecs[i])
             samples[i] = self._theta_hat + z
 
         return samples
@@ -884,7 +886,9 @@ class RashomonSet:
     def _fit_linear_ridge(self, X: Array, y: Array, lam: float) -> Tuple[Array, float]:
         n, d = X.shape
         if _HAS_SK:
-            model = Ridge(alpha=lam, fit_intercept=False)
+            # sklearn Ridge minimizes ||y-Xw||^2 + alpha*||w||^2 (sum, not mean)
+            # Our objective uses (1/2n)*sum + (lam/2)*||w||^2, so alpha = n*lam
+            model = Ridge(alpha=n * lam, fit_intercept=False)
             model.fit(X, y)
             theta = model.coef_.astype(float, copy=False)
         else:
@@ -898,9 +902,10 @@ class RashomonSet:
     def _fit_logistic_l2(self, X: Array, y: Array, lam: float) -> Tuple[Array, float, Array]:
         n, d = X.shape
         if _HAS_SK:
-            # Sklearn uses C = 1/lambda, match our no-intercept setup
+            # sklearn minimizes C*sum(loss) + (1/2)||w||^2 (sum, not mean)
+            # Our objective: (1/n)*sum(loss) + (lam/2)||w||^2, so C = 1/(n*lam)
             model = LogisticRegression(
-                penalty="l2", C=1.0 / lam, fit_intercept=False, solver="lbfgs",
+                penalty="l2", C=1.0 / (n * lam), fit_intercept=False, solver="lbfgs",
                 max_iter=self.max_iter, random_state=self.random_state,
             )
             model.fit(X, y.astype(int))
@@ -937,7 +942,7 @@ class RashomonSet:
         n = X.shape[0]
         z = X @ theta
         # average logistic loss + L2
-        L = np.mean(np.log1p(np.exp(z)) - y * z) + 0.5 * lam * float(np.dot(theta, theta))
+        L = np.mean(np.logaddexp(0.0, z) - y * z) + 0.5 * lam * float(np.dot(theta, theta))
         return float(L)
 
     def _estimate_hessian_condition_number(self) -> Optional[float]:
@@ -2221,7 +2226,7 @@ class RashomonSet:
             else:
                 lam = self._lambda
                 if _HAS_SK:
-                    model = Ridge(alpha=lam, fit_intercept=False)
+                    model = Ridge(alpha=n * lam, fit_intercept=False)
                     model.fit(X_b, y_b)
                     boot_coefs[b] = model.coef_.ravel()
                 else:

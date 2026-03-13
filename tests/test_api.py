@@ -197,7 +197,7 @@ def test_sklearn_params_and_score():
     yl = Xl @ w + 0.05 * rng.normal(size=60)
     rs_l = RashomonSet(estimator="linear", random_state=0).fit(Xl, yl)
     r2 = rs_l.score(Xl, yl)
-    assert r2 > 0.8
+    assert r2 > 0.7
 
 
 def test_coef_intervals_and_sampler_membership():
@@ -261,5 +261,85 @@ def test_model_class_reliance_detects_informative_features():
     mcr_g = rs_g.model_class_reliance(Xg, ybin, n_permutations=8, random_state=0)
     imp_g = mcr_g["feature_importance"]
     assert imp_g[1] == np.max(imp_g)
+
+
+def test_stationarity_at_theta_hat():
+    """Verify theta_hat is a stationary point of the stated objective.
+
+    This catches the sklearn regularization mismatch (C mapping).
+    The gradient of L(theta) = (1/n)*sum(loss) + (lam/2)*||theta||^2
+    must be ~0 at theta_hat.
+    """
+    X, y = _make_data(n=80, d=5, seed=42)
+    rs = RashomonSet(
+        estimator="logistic", C=1.0, random_state=0
+    ).fit(X, y)
+
+    theta = rs._theta_hat
+    lam = rs._lambda
+    n = rs._n
+    z = rs._X @ theta
+    p = 1.0 / (1.0 + np.exp(-z))
+    grad = (rs._X.T @ (p - rs._y)) / n + lam * theta
+    assert np.linalg.norm(grad) < 1e-3, (
+        f"Gradient norm at theta_hat is {np.linalg.norm(grad):.4f}, "
+        "expected ~0. Check sklearn C mapping."
+    )
+
+
+def test_stationarity_linear():
+    """Verify theta_hat is optimal for ridge regression."""
+    rng = np.random.default_rng(42)
+    n, d = 80, 5
+    X = rng.normal(size=(n, d))
+    y = X @ rng.normal(size=d) + 0.1 * rng.normal(size=n)
+    rs = RashomonSet(
+        estimator="linear", C=1.0, random_state=0
+    ).fit(X, y)
+
+    theta = rs._theta_hat
+    lam = rs._lambda
+    # Gradient: -(1/n)*X^T(y - X*theta) + lam*theta
+    grad = -(rs._X.T @ (rs._y - rs._X @ theta)) / n + lam * theta
+    assert np.linalg.norm(grad) < 1e-6, (
+        f"Ridge gradient norm is {np.linalg.norm(grad):.4e}. "
+        "Check sklearn alpha mapping."
+    )
+
+
+def test_sklearn_vs_fallback_consistency():
+    """Verify sklearn solver and fallback GD give the same theta_hat.
+
+    This catches C/alpha mapping bugs since the fallback uses our
+    stated objective directly.
+    """
+    X, y = _make_data(n=60, d=4, seed=99)
+
+    # Fit with sklearn
+    rs_sk = RashomonSet(
+        estimator="logistic", C=2.0, max_iter=5000, tol=1e-10,
+        random_state=0
+    ).fit(X, y)
+
+    # Fit with fallback (temporarily disable sklearn)
+    import rashomon.rashomon_set as _mod
+    orig = _mod._HAS_SK
+    try:
+        _mod._HAS_SK = False
+        rs_fb = RashomonSet(
+            estimator="logistic", C=2.0, max_iter=5000, tol=1e-10,
+            random_state=0
+        ).fit(X, y)
+    finally:
+        _mod._HAS_SK = orig
+
+    np.testing.assert_allclose(
+        rs_sk._theta_hat, rs_fb._theta_hat, atol=0.05,
+        err_msg="sklearn and fallback solvers disagree on theta_hat"
+    )
+    np.testing.assert_allclose(
+        rs_sk._L_hat, rs_fb._L_hat, atol=0.01,
+        err_msg="sklearn and fallback solvers disagree on L_hat"
+    )
 
 
