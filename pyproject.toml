@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "rashomon-py"
-version = "0.0.0"
+version = "0.1.0"
 description = "Rashomon-GLM: ε-Rashomon sets, certificates, sampling, and set-level metrics for GLMs"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -25,6 +25,10 @@ dependencies = [
   "scipy>=1.10",
   "scikit-learn>=1.2",
   "matplotlib>=3.7",
+]
+
+[project.optional-dependencies]
+full = [
   "seaborn>=0.12",
   "tqdm>=4.65",
 ]
@@ -65,3 +69,7 @@ no_implicit_optional = true
 ignore_missing_imports = true
 pretty = true
 show_error_codes = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"

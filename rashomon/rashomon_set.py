@@ -1231,20 +1231,20 @@ class RashomonSet:
                         ess_vals[j] = float(n_samples)
                 ess_per_param = ess_vals
             except Exception:
-                    ess_per_param = None
-    
-            return {
-                "n_samples": n_samples,
-                "set_fidelity": set_fidelity,
-                "chord_mean": chord_mean,
-                "chord_std": chord_std,
-                "chord_min": chord_min,
-                "chord_max": chord_max,
-                "isotropy_ratio": isotropy_ratio,
-                "ess_per_param": ess_per_param,
-            }
-    
-        # ----------------------------- VIC (E20) --------------------------------
+                ess_per_param = None
+
+        return {
+            "n_samples": n_samples,
+            "set_fidelity": set_fidelity,
+            "chord_mean": chord_mean,
+            "chord_std": chord_std,
+            "chord_min": chord_min,
+            "chord_max": chord_max,
+            "isotropy_ratio": isotropy_ratio,
+            "ess_per_param": ess_per_param,
+        }
+
+    # ----------------------------- VIC (E20) --------------------------------
     def variable_importance_cloud(
         self,
         *,
@@ -1336,329 +1336,377 @@ class RashomonSet:
         }
 
     def plot_vic(
-            self,
-            vic_result: Optional[Dict[str, Any]] = None,
-            *,
-            n_samples: int = 200,
-            feature_names: Optional[list] = None,
-            figsize: Optional[tuple] = None,
-            show_theta_hat: bool = True,
-            **kwargs: Any,
-        ) -> Any:
-            """Plot Variable Importance Cloud (coefficient distributions).
-            
-            Parameters
-            ----------
-            vic_result : Optional[dict]
-                Pre-computed VIC result. If None, computes internally.
-            n_samples : int
-                Number of samples if computing VIC internally.
-            feature_names : Optional[list]
-                Feature names for axis labels.
-            figsize : Optional[tuple]
-                Figure size (width, height).
-            show_theta_hat : bool
-                If True, show optimal theta_hat as reference.
-            **kwargs
-                Additional arguments for variable_importance_cloud().
-            
-            Returns
-            -------
-            matplotlib Figure and Axes objects.
-            """
-            try:
-                from .plotting import plot_vic
-            except ImportError:
-                raise ImportError("matplotlib is required for plotting. Install via: pip install matplotlib")
-    
-            # Compute VIC if not provided
-            if vic_result is None:
-                vic_result = self.variable_importance_cloud(
-                    n_samples=n_samples,
-                    feature_names=feature_names,
-                    **kwargs,
-                )
-    
-            return plot_vic(
-                vic_result,
-                theta_hat=self._theta_hat if show_theta_hat else None,
-                figsize=figsize
+        self,
+        vic_result: Optional[Dict[str, Any]] = None,
+        *,
+        n_samples: int = 200,
+        feature_names: Optional[list] = None,
+        figsize: Optional[tuple] = None,
+        show_theta_hat: bool = True,
+        **kwargs: Any,
+    ) -> Any:
+        """Plot Variable Importance Cloud (coefficient distributions).
+
+        Parameters
+        ----------
+        vic_result : Optional[dict]
+            Pre-computed VIC result. If None, computes internally.
+        n_samples : int
+            Number of samples if computing VIC internally.
+        feature_names : Optional[list]
+            Feature names for axis labels.
+        figsize : Optional[tuple]
+            Figure size (width, height).
+        show_theta_hat : bool
+            If True, show optimal theta_hat as reference.
+        **kwargs
+            Additional arguments for variable_importance_cloud().
+
+        Returns
+        -------
+        matplotlib Figure and Axes objects.
+        """
+        try:
+            from .plotting import plot_vic
+        except ImportError:
+            raise ImportError("matplotlib is required for plotting. Install via: pip install matplotlib")
+
+        # Compute VIC if not provided
+        if vic_result is None:
+            vic_result = self.variable_importance_cloud(
+                n_samples=n_samples,
+                feature_names=feature_names,
+                **kwargs,
             )
+
+        return plot_vic(
+            vic_result,
+            theta_hat=self._theta_hat if show_theta_hat else None,
+            figsize=figsize
+        )
 
     def plot_ambiguity(
-            self,
-            X: Array,
-            threshold_mode: str = "fixed",
-            threshold_value: float | None = None,
-            y: Array | None = None,
-            figsize: Optional[tuple] = None,
-            **kwargs: Any,
-        ) -> Any:
-            """Plot predictive ambiguity distribution.
-            
-            Parameters
-            ----------
-            X : Array
-                Data to evaluate.
-            threshold_mode : str
-                Threshold selection mode.
-            threshold_value : float
-                Value for fixed threshold.
-            y : Array
-                Labels (optional).
-            figsize : tuple
-                Figure size.
-            
-            Returns
-            -------
-            fig, ax
-            """
-            try:
-                from .plotting import plot_ambiguity
-            except ImportError:
-                raise ImportError("matplotlib is required for plotting")
-    
-            # Compute margins
-            margins = self.decision_function(X)
-            
-            # Compute threshold and ambiguous set
-            amb_result = self.ambiguity(
-                X, threshold_mode, threshold_value, y, **kwargs
-            )
-            
-            return plot_ambiguity(
-                margins,
-                threshold=amb_result["threshold"],
-                ambiguous_indices=amb_result["ambiguous_indices"],
-                figsize=figsize
-            )
+        self,
+        X: Array,
+        threshold_mode: str = "fixed",
+        threshold_value: float | None = None,
+        y: Array | None = None,
+        figsize: Optional[tuple] = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Plot predictive ambiguity distribution.
+
+        Parameters
+        ----------
+        X : Array
+            Data to evaluate.
+        threshold_mode : str
+            Threshold selection mode.
+        threshold_value : float
+            Value for fixed threshold.
+        y : Array
+            Labels (optional).
+        figsize : tuple
+            Figure size.
+
+        Returns
+        -------
+        fig, ax
+        """
+        try:
+            from .plotting import plot_ambiguity
+        except ImportError:
+            raise ImportError("matplotlib is required for plotting")
+
+        # Compute margins
+        margins = self.decision_function(X)
+
+        # Compute threshold and ambiguous set
+        amb_result = self.ambiguity(
+            X, threshold_mode, threshold_value, y, **kwargs
+        )
+
+        return plot_ambiguity(
+            margins,
+            threshold=amb_result["threshold"],
+            ambiguous_indices=amb_result["ambiguous_indices"],
+            figsize=figsize
+        )
 
     def plot_discrepancy(
-            self,
-            X: Array,
-            samples: Array | None = None,
-            n_samples: int = 50,
-            n_pairs: int = 100,
-            threshold_mode: str = "fixed",
-            threshold_value: float | None = None,
-            y: Array | None = None,
-            figsize: Optional[tuple] = None,
-            **kwargs: Any,
-        ) -> Any:
-            """Plot pairwise discrepancy heatmap.
-            
-            Parameters
-            ----------
-            X : Array
-                Data matrix.
-            samples : Array, optional
-                Pre-computed samples.
-            n_samples : int
-                Number of samples to draw.
-            n_pairs : int
-                Number of pairs (not used for heatmap, used for metric).
-            threshold_mode : str
-                Threshold selection mode.
-            y : Array
-                Labels.
-            figsize : tuple
-                Figure size.
-            
-            Returns
-            -------
-            fig, ax
-            """
-            try:
-                from .plotting import plot_discrepancy
-            except ImportError:
-                raise ImportError("matplotlib is required for plotting")
-    
-            if not self._fitted:
-                raise RuntimeError("Call fit() first")
-    
-            X = np.asarray(X)
-            
-            # 1. Get samples
-            if samples is None:
-                samples = self.sample(n_samples)
-            else:
-                n_samples = len(samples)
-                
-            # 2. Compute predictions
-            tau = self.compute_threshold(y if y is not None else np.zeros(1), threshold_mode, threshold_value, **kwargs)
-            margins = X @ samples.T
-            preds = (margins >= tau).astype(int)
-            
-            # 3. Compute pairwise discrepancy matrix
-            disc_matrix = np.zeros((n_samples, n_samples))
-            for i in range(n_samples):
-                for j in range(i + 1, n_samples):
-                    d = float(np.mean(preds[:, i] != preds[:, j]))
-                    disc_matrix[i, j] = d
-                    disc_matrix[j, i] = d
-            
-            return plot_discrepancy(disc_matrix, figsize=figsize)
+        self,
+        X: Array,
+        samples: Array | None = None,
+        n_samples: int = 50,
+        n_pairs: int = 100,
+        threshold_mode: str = "fixed",
+        threshold_value: float | None = None,
+        y: Array | None = None,
+        figsize: Optional[tuple] = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Plot pairwise discrepancy heatmap.
+
+        Parameters
+        ----------
+        X : Array
+            Data matrix.
+        samples : Array, optional
+            Pre-computed samples.
+        n_samples : int
+            Number of samples to draw.
+        n_pairs : int
+            Number of pairs (not used for heatmap, used for metric).
+        threshold_mode : str
+            Threshold selection mode.
+        y : Array
+            Labels.
+        figsize : tuple
+            Figure size.
+
+        Returns
+        -------
+        fig, ax
+        """
+        try:
+            from .plotting import plot_discrepancy
+        except ImportError:
+            raise ImportError("matplotlib is required for plotting")
+
+        if not self._fitted:
+            raise RuntimeError("Call fit() first")
+
+        X = np.asarray(X)
+
+        # 1. Get samples
+        if samples is None:
+            samples = self.sample(n_samples)
+        else:
+            n_samples = len(samples)
+
+        # 2. Compute predictions
+        tau = self.compute_threshold(y if y is not None else np.zeros(1), threshold_mode, threshold_value, **kwargs)
+        margins = X @ samples.T
+        preds = (margins >= tau).astype(int)
+
+        # 3. Compute pairwise discrepancy matrix
+        disc_matrix = np.zeros((n_samples, n_samples))
+        for i in range(n_samples):
+            for j in range(i + 1, n_samples):
+                d = float(np.mean(preds[:, i] != preds[:, j]))
+                disc_matrix[i, j] = d
+                disc_matrix[j, i] = d
+
+        return plot_discrepancy(disc_matrix, figsize=figsize)
 
     # ------------------------------ Placeholders ----------------------------
     def variable_importance(self, mode: str = "VIC") -> Any:
-            """Legacy method - use variable_importance_cloud() instead."""
-            if mode.upper() == "VIC":
-                return self.variable_importance_cloud()
-            raise NotImplementedError(f"Mode '{mode}' not implemented")
+        """Legacy method - use variable_importance_cloud() instead."""
+        if mode.upper() == "VIC":
+            return self.variable_importance_cloud()
+        raise NotImplementedError(f"Mode '{mode}' not implemented")
 
     def model_class_reliance(
-            self,
-            X: Array,
-            y: Array,
-            *,
-            n_permutations: int = 16,
-            n_samples: int = 100,
-            perm_mode: str = "iid",
-            check_collinearity: bool = True,
-            random_state: Optional[int] = None,
-        ) -> Dict[str, Any]:
-            """Enhanced Model Class Reliance (MCR) with correlation-aware permutations (E22).
-    
-            Computes feature importance by measuring performance degradation under
-            permutation, averaged across the Rashomon set. Supports multiple
-            permutation modes to handle correlated features.
-    
-            Parameters
-            ----------
-            X : array of shape (n, d)
-                Feature matrix.
-            y : array of shape (n,)
-                Target vector.
-            n_permutations : int
-                Number of permutation replicates per feature.
-            n_samples : int
-                Number of parameter samples from Rashomon set.
-            perm_mode : str
-                Permutation strategy:
-                - "iid": independent permutation (baseline)
-                - "residual": permute residuals from linear predictor (correlation-aware)
-                - "conditional": permute within bins of correlated features (experimental)
-            check_collinearity : bool
-                If True, warn when features are highly correlated.
-            random_state : Optional[int]
-                Random seed.
-    
-            Returns
-            -------
-            dict with keys:
-                - 'feature_importance': array of shape (d,) - mean importance
-                - 'importance_std': array of shape (d,) - std across samples
-                - 'base_score': float - baseline score on unpermuted data
-                - 'collinearity_warning': Optional[list] - pairs of correlated features
-            """
-            if not self._fitted:
-                raise RuntimeError("Call fit() first.")
-            X = np.asarray(X)
-            y = np.asarray(y)
-            if X.ndim != 2 or X.shape[1] != self._d:
-                raise ValueError("X must be 2D with d features")
-    
-            seed = self._seed if random_state is None else int(random_state)
-            rng = np.random.default_rng(seed)
-    
-            # Check for collinearity
-            collinear_pairs = []
-            if check_collinearity and X.shape[0] >= self._d:
-                try:
-                    corr_matrix = np.corrcoef(X, rowvar=False)
-                    for i in range(self._d):
-                        for j in range(i + 1, self._d):
-                            if abs(corr_matrix[i, j]) > 0.85:
-                                collinear_pairs.append((i, j, corr_matrix[i, j]))
-                    if collinear_pairs:
-                        warnings.warn(
-                            f"High collinearity detected: {len(collinear_pairs)} pairs. "
-                            "Consider using perm_mode='residual' or 'conditional'."
-                        )
-                except Exception:
-                    pass
-    
-            # Sample parameters from Rashomon set
+        self,
+        X: Array,
+        y: Array,
+        *,
+        n_permutations: int = 16,
+        n_samples: int = 100,
+        perm_mode: str = "iid",
+        sampler: Optional[str] = None,
+        burnin: int = 100,
+        thin: int = 2,
+        check_collinearity: bool = True,
+        random_state: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Model Class Reliance (MCR) with correlation-aware permutations.
+
+        Computes feature importance by measuring performance degradation under
+        permutation across the Rashomon set. Returns both the mean/std of
+        importance (sampling estimate) and the min/max importance bounds
+        (MCR intervals per Fisher, Rudin, Dominici 2019).
+
+        Parameters
+        ----------
+        X : array of shape (n, d)
+            Feature matrix.
+        y : array of shape (n,)
+            Target vector.
+        n_permutations : int
+            Number of permutation replicates per feature.
+        n_samples : int
+            Number of parameter samples from Rashomon set.
+        perm_mode : str
+            Permutation strategy:
+            - "iid": independent permutation (baseline)
+            - "residual": permute partial residuals (correlation-aware)
+            - "conditional": permute within bins of correlated features
+        sampler : Optional[str]
+            Sampler to use ("ellipsoid" or "hitandrun"). Defaults to
+            self.sampler. Using "hitandrun" ensures all samples are
+            within the true Rashomon set.
+        burnin : int
+            Burn-in for Hit-and-Run sampler (ignored for ellipsoid).
+        thin : int
+            Thinning for Hit-and-Run sampler (ignored for ellipsoid).
+        check_collinearity : bool
+            If True, warn when features are highly correlated.
+        random_state : Optional[int]
+            Random seed.
+
+        Returns
+        -------
+        dict with keys:
+            - 'feature_importance': array (d,) - mean importance across samples
+            - 'importance_std': array (d,) - std across samples
+            - 'mcr_min': array (d,) - min importance across samples (MCR-)
+            - 'mcr_max': array (d,) - max importance across samples (MCR+)
+            - 'importance_matrix': array (n_samples, d) - per-sample importances
+            - 'base_score': float - baseline score at theta_hat
+            - 'collinearity_warning': Optional[list] - correlated feature pairs
+
+        References
+        ----------
+        Fisher, Rudin, Dominici (2019). "All Models are Wrong, but Many
+        are Useful."
+        """
+        if not self._fitted:
+            raise RuntimeError("Call fit() first.")
+        X = np.asarray(X)
+        y = np.asarray(y)
+        if X.ndim != 2 or X.shape[1] != self._d:
+            raise ValueError("X must be 2D with d features")
+
+        seed = self._seed if random_state is None else int(random_state)
+        rng = np.random.default_rng(seed)
+
+        # Check for collinearity
+        collinear_pairs = []
+        if check_collinearity and X.shape[0] >= self._d:
+            try:
+                corr_matrix = np.corrcoef(X, rowvar=False)
+                for i in range(self._d):
+                    for j in range(i + 1, self._d):
+                        if abs(corr_matrix[i, j]) > 0.85:
+                            collinear_pairs.append((i, j, corr_matrix[i, j]))
+                if collinear_pairs:
+                    warnings.warn(
+                        f"High collinearity detected: {len(collinear_pairs)} pairs. "
+                        "Consider using perm_mode='residual' or 'conditional'."
+                    )
+            except Exception:
+                pass
+
+        # Sample parameters from Rashomon set using configured sampler
+        backend = sampler if sampler is not None else self.sampler
+        if backend.lower() == "ellipsoid":
             samples = self.sample_ellipsoid(n_samples=n_samples, random_state=seed)
-    
-            # Compute importance for each sampled parameter
-            importance_matrix = np.zeros((n_samples, self._d), dtype=float)
-    
-            for s_idx in range(n_samples):
-                theta_s = samples[s_idx]
-    
-                # Base score with this parameter
-                if self.estimator == "logistic":
-                    scores = X @ theta_s
-                    preds = (scores > 0.0).astype(int)
-                    base = float(np.mean((preds == y.astype(int)).astype(float)))
-                else:
-                    preds = X @ theta_s
-                    ss_res = float(np.sum((y - preds) ** 2))
-                    y_mean = float(np.mean(y))
-                    ss_tot = float(np.sum((y - y_mean) ** 2))
-                    base = 1.0 - ss_res / ss_tot if ss_tot > 0 else 1.0
-    
-                # Permutation importance for each feature
-                for j in range(self._d):
-                    perm_scores = np.zeros(n_permutations, dtype=float)
-        
-                    for p in range(n_permutations):
-                        Xp = X.copy()
-        
-                        if perm_mode == "iid":
-                            # Standard permutation
-                            rng.shuffle(Xp[:, j])
-                        elif perm_mode == "residual":
-                            # Permute residuals from prediction without feature j
-                            theta_minus_j = theta_s.copy()
-                            theta_minus_j[j] = 0.0
-                            pred_minus_j = X @ theta_minus_j
-                            residual_j = X[:, j] - pred_minus_j / (theta_s[j] + 1e-12)
-                            residual_j_perm = residual_j.copy()
-                            rng.shuffle(residual_j_perm)
-                            Xp[:, j] = residual_j_perm + pred_minus_j / (theta_s[j] + 1e-12)
-                        elif perm_mode == "conditional":
-                            # Conditional permutation (simplified: bin-based)
-                            # Bin samples by correlated features and permute within bins
-                            n_bins = max(3, int(np.sqrt(X.shape[0])))
-                            # Use mean of other features for binning
-                            other_mean = np.mean(np.delete(X, j, axis=1), axis=1)
-                            bins = np.digitize(other_mean, np.linspace(other_mean.min(), other_mean.max(), n_bins))
-                            for b in range(1, n_bins + 1):
-                                mask = bins == b
-                                if np.sum(mask) > 1:
-                                    Xp[mask, j] = rng.permutation(Xp[mask, j])
-                        else:
-                            raise ValueError(f"Unknown perm_mode: {perm_mode}")
-        
-                        # Score with permuted feature
-                        if self.estimator == "logistic":
-                            scores_p = Xp @ theta_s
-                            preds_p = (scores_p > 0.0).astype(int)
-                            score_p = float(np.mean((preds_p == y.astype(int)).astype(float)))
-                        else:
-                            preds_p = Xp @ theta_s
-                            ss_res_p = float(np.sum((y - preds_p) ** 2))
-                            score_p = 1.0 - ss_res_p / ss_tot if ss_tot > 0 else 1.0
-        
-                        perm_scores[p] = score_p
-        
-                    importance_matrix[s_idx, j] = base - np.mean(perm_scores)
-            # Aggregate across samples
-            mean_importance = np.mean(importance_matrix, axis=0)
-            std_importance = np.std(importance_matrix, axis=0)
-        
-            # Compute base score on original parameter
-            base_score = self.score(X, y)
-        
-            return {
-                "feature_importance": mean_importance,
-                "importance_std": std_importance,
-                "importance_matrix": importance_matrix,
-                "base_score": base_score,
-                "collinearity_warning": collinear_pairs if collinear_pairs else None,
-            }
+        elif backend.lower() == "hitandrun":
+            samples = self.sample_hitandrun(
+                n_samples=n_samples,
+                burnin=burnin,
+                thin=thin,
+                random_state=seed,
+                compute_diagnostics=False,
+            )
+        else:
+            raise ValueError(f"Unknown sampler: {backend}")
+
+        # Pre-compute ss_tot for linear models (used across all samples)
+        y_mean = float(np.mean(y))
+        ss_tot = float(np.sum((y - y_mean) ** 2))
+
+        # Compute importance for each sampled parameter
+        importance_matrix = np.zeros((n_samples, self._d), dtype=float)
+
+        for s_idx in range(n_samples):
+            theta_s = samples[s_idx]
+
+            # Base score with this parameter
+            if self.estimator == "logistic":
+                scores = X @ theta_s
+                preds = (scores > 0.0).astype(int)
+                base = float(np.mean((preds == y.astype(int)).astype(float)))
+            else:
+                preds = X @ theta_s
+                ss_res = float(np.sum((y - preds) ** 2))
+                base = 1.0 - ss_res / ss_tot if ss_tot > 0 else 1.0
+
+            # Permutation importance for each feature
+            for j in range(self._d):
+                perm_scores = np.zeros(n_permutations, dtype=float)
+
+                for p in range(n_permutations):
+                    Xp = X.copy()
+
+                    if perm_mode == "iid":
+                        # Standard permutation
+                        rng.shuffle(Xp[:, j])
+                    elif perm_mode == "residual":
+                        # Partial residual permutation (correlation-aware)
+                        # Regress X[:,j] on other features to get partial residual
+                        X_other = np.delete(X, j, axis=1)
+                        # Fast least-squares via normal equations
+                        XtX = X_other.T @ X_other
+                        Xty = X_other.T @ X[:, j]
+                        try:
+                            beta = np.linalg.solve(
+                                XtX + 1e-8 * np.eye(X_other.shape[1]), Xty
+                            )
+                            predicted_j = X_other @ beta
+                        except np.linalg.LinAlgError:
+                            predicted_j = np.zeros(X.shape[0])
+                        residual_j = X[:, j] - predicted_j
+                        residual_j_perm = residual_j.copy()
+                        rng.shuffle(residual_j_perm)
+                        Xp[:, j] = predicted_j + residual_j_perm
+                    elif perm_mode == "conditional":
+                        # Conditional permutation (simplified: bin-based)
+                        # Bin samples by correlated features and permute within bins
+                        n_bins = max(3, int(np.sqrt(X.shape[0])))
+                        # Use mean of other features for binning
+                        other_mean = np.mean(np.delete(X, j, axis=1), axis=1)
+                        bins = np.digitize(other_mean, np.linspace(other_mean.min(), other_mean.max(), n_bins))
+                        for b in range(1, n_bins + 1):
+                            mask = bins == b
+                            if np.sum(mask) > 1:
+                                Xp[mask, j] = rng.permutation(Xp[mask, j])
+                    else:
+                        raise ValueError(f"Unknown perm_mode: {perm_mode}")
+
+                    # Score with permuted feature
+                    if self.estimator == "logistic":
+                        scores_p = Xp @ theta_s
+                        preds_p = (scores_p > 0.0).astype(int)
+                        score_p = float(np.mean((preds_p == y.astype(int)).astype(float)))
+                    else:
+                        preds_p = Xp @ theta_s
+                        ss_res_p = float(np.sum((y - preds_p) ** 2))
+                        score_p = 1.0 - ss_res_p / ss_tot if ss_tot > 0 else 1.0
+
+                    perm_scores[p] = score_p
+
+                importance_matrix[s_idx, j] = base - np.mean(perm_scores)
+
+        # Aggregate: mean/std (sampling estimate) + min/max (MCR bounds)
+        mean_importance = np.mean(importance_matrix, axis=0)
+        std_importance = np.std(importance_matrix, axis=0)
+        mcr_min = np.min(importance_matrix, axis=0)
+        mcr_max = np.max(importance_matrix, axis=0)
+
+        # Compute base score on original parameter
+        base_score = self.score(X, y)
+
+        return {
+            "feature_importance": mean_importance,
+            "importance_std": std_importance,
+            "mcr_min": mcr_min,
+            "mcr_max": mcr_max,
+            "importance_matrix": importance_matrix,
+            "base_score": base_score,
+            "collinearity_warning": collinear_pairs if collinear_pairs else None,
+        }
 
     def compute_threshold(
         self,
@@ -2075,6 +2123,173 @@ class RashomonSet:
                 warnings.warn(f"Unknown multiplicity metric: {metric}", stacklevel=2)
 
         return result
+
+    def compare_to_bootstrap(
+        self,
+        X: Array,
+        y: Array,
+        *,
+        n_bootstrap: int = 200,
+        n_rashomon: int = 200,
+        sampler: Optional[str] = None,
+        burnin: int = 100,
+        thin: int = 2,
+        confidence: float = 0.90,
+        feature_names: Optional[list] = None,
+        random_state: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Compare bootstrap CIs to Rashomon set VIC intervals.
+
+        This method highlights the distinction between *sampling uncertainty*
+        (captured by bootstrap confidence intervals) and *design-choice
+        multiplicity* (captured by the Rashomon set's VIC intervals). The two
+        can diverge substantially: narrow CIs with wide VIC indicates many
+        near-optimal models despite well-identified parameters, while wide CIs
+        with narrow VIC means prediction is robust despite parameter uncertainty.
+
+        Parameters
+        ----------
+        X : array of shape (n, d)
+            Feature matrix (same data used for fitting).
+        y : array of shape (n,)
+            Target vector.
+        n_bootstrap : int
+            Number of bootstrap resamples for CI estimation.
+        n_rashomon : int
+            Number of samples from the Rashomon set for VIC.
+        sampler : Optional[str]
+            Sampler for Rashomon set ("ellipsoid" or "hitandrun").
+        burnin : int
+            Burn-in for Hit-and-Run sampler.
+        thin : int
+            Thinning for Hit-and-Run sampler.
+        confidence : float
+            Confidence level for intervals (default 0.90).
+        feature_names : Optional[list]
+            Names for features.
+        random_state : Optional[int]
+            Random seed for reproducibility.
+
+        Returns
+        -------
+        dict with keys:
+            - 'bootstrap_coefs': array (n_bootstrap, d) - bootstrap coefficient samples
+            - 'bootstrap_ci': array (d, 2) - bootstrap confidence intervals
+            - 'bootstrap_mean': array (d,) - bootstrap mean coefficients
+            - 'bootstrap_std': array (d,) - bootstrap std of coefficients
+            - 'vic_samples': array (n_rashomon, d) - Rashomon set coefficient samples
+            - 'vic_intervals': array (d, 2) - VIC intervals at same confidence
+            - 'vic_mean': array (d,) - VIC mean coefficients
+            - 'vic_std': array (d,) - VIC std of coefficients
+            - 'theta_hat': array (d,) - point estimate
+            - 'feature_names': list - feature names
+            - 'confidence': float - confidence level used
+            - 'divergence': dict with per-feature comparison metrics
+        """
+        if not self._fitted:
+            raise RuntimeError("Call fit() first.")
+        X = np.asarray(X, dtype=float)
+        y = np.asarray(y, dtype=float)
+        n, d = X.shape
+
+        seed = self._seed if random_state is None else int(random_state)
+        rng = np.random.default_rng(seed)
+        alpha = 1.0 - confidence
+
+        # --- Bootstrap resampling ---
+        boot_coefs = np.zeros((n_bootstrap, d), dtype=float)
+        for b in range(n_bootstrap):
+            idx = rng.choice(n, size=n, replace=True)
+            X_b, y_b = X[idx], y[idx]
+
+            # Fit the same model type on the bootstrap sample
+            if self.estimator == "logistic":
+                if _HAS_SK:
+                    lam = self._lambda
+                    C_val = 1.0 / (n * lam) if lam > 0 else 1e6
+                    model = LogisticRegression(
+                        penalty="l2", C=C_val, fit_intercept=False,
+                        solver="lbfgs", max_iter=1000
+                    )
+                    try:
+                        model.fit(X_b, y_b)
+                        boot_coefs[b] = model.coef_.ravel()
+                    except Exception:
+                        boot_coefs[b] = self._theta_hat
+                else:
+                    boot_coefs[b] = self._theta_hat
+            else:
+                lam = self._lambda
+                if _HAS_SK:
+                    model = Ridge(alpha=lam, fit_intercept=False)
+                    model.fit(X_b, y_b)
+                    boot_coefs[b] = model.coef_.ravel()
+                else:
+                    A = (X_b.T @ X_b) / n + lam * np.eye(d)
+                    bvec = (X_b.T @ y_b) / n
+                    boot_coefs[b] = np.linalg.solve(A, bvec)
+
+        boot_mean = np.mean(boot_coefs, axis=0)
+        boot_std = np.std(boot_coefs, axis=0)
+        boot_ci = np.stack([
+            np.quantile(boot_coefs, alpha / 2, axis=0),
+            np.quantile(boot_coefs, 1 - alpha / 2, axis=0),
+        ], axis=1)
+
+        # --- Rashomon set VIC ---
+        vic = self.variable_importance_cloud(
+            n_samples=n_rashomon,
+            sampler=sampler,
+            feature_names=feature_names,
+            burnin=burnin,
+            thin=thin,
+            random_state=seed,
+        )
+
+        vic_samples = vic["samples"]
+        vic_mean = vic["mean"]
+        vic_std = vic["std"]
+        q_lo = alpha / 2
+        q_hi = 1 - alpha / 2
+        vic_intervals = np.stack([
+            np.quantile(vic_samples, q_lo, axis=0),
+            np.quantile(vic_samples, q_hi, axis=0),
+        ], axis=1)
+
+        # --- Per-feature divergence metrics ---
+        names = vic["feature_names"]
+        divergence = {}
+        for j in range(d):
+            boot_width = float(boot_ci[j, 1] - boot_ci[j, 0])
+            vic_width = float(vic_intervals[j, 1] - vic_intervals[j, 0])
+            # Overlap between the two intervals
+            overlap_lo = max(boot_ci[j, 0], vic_intervals[j, 0])
+            overlap_hi = min(boot_ci[j, 1], vic_intervals[j, 1])
+            overlap = max(0.0, float(overlap_hi - overlap_lo))
+            union_width = max(boot_ci[j, 1], vic_intervals[j, 1]) - min(boot_ci[j, 0], vic_intervals[j, 0])
+            iou = overlap / union_width if union_width > 0 else 1.0
+
+            divergence[names[j]] = {
+                "bootstrap_width": boot_width,
+                "vic_width": vic_width,
+                "width_ratio": vic_width / boot_width if boot_width > 1e-12 else float("inf"),
+                "overlap_iou": iou,
+            }
+
+        return {
+            "bootstrap_coefs": boot_coefs,
+            "bootstrap_ci": boot_ci,
+            "bootstrap_mean": boot_mean,
+            "bootstrap_std": boot_std,
+            "vic_samples": vic_samples,
+            "vic_intervals": vic_intervals,
+            "vic_mean": vic_mean,
+            "vic_std": vic_std,
+            "theta_hat": self._theta_hat.copy(),
+            "feature_names": names,
+            "confidence": confidence,
+            "divergence": divergence,
+        }
 
 
 def _detect_blas_vendor() -> Optional[str]:

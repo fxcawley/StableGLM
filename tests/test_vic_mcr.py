@@ -145,11 +145,19 @@ def test_mcr_enhanced_iid():
     assert "base_score" in mcr
     assert "collinearity_warning" in mcr
     assert "importance_matrix" in mcr
+    assert "mcr_min" in mcr
+    assert "mcr_max" in mcr
 
     # Check shapes
     assert mcr["feature_importance"].shape == (4,)
     assert mcr["importance_std"].shape == (4,)
     assert mcr["importance_matrix"].shape == (20, 4)
+    assert mcr["mcr_min"].shape == (4,)
+    assert mcr["mcr_max"].shape == (4,)
+
+    # MCR bounds: min <= mean <= max
+    assert np.all(mcr["mcr_min"] <= mcr["feature_importance"] + 1e-10)
+    assert np.all(mcr["feature_importance"] <= mcr["mcr_max"] + 1e-10)
 
     # Base score should be reasonable
     assert 0.0 <= mcr["base_score"] <= 1.0
@@ -288,4 +296,111 @@ def test_vic_plot_runs():
     except ImportError:
         # Matplotlib not available - skip
         pass
+
+
+def test_mcr_with_hitandrun_sampler():
+    """Test MCR uses the specified sampler backend."""
+    X, y = _make_data(n=60, d=3, seed=44)
+    rs = RashomonSet(
+        estimator="logistic",
+        epsilon=0.08,
+        epsilon_mode="percent_loss",
+        random_state=0
+    ).fit(X, y)
+
+    mcr = rs.model_class_reliance(
+        X, y,
+        n_permutations=4,
+        n_samples=10,
+        perm_mode="iid",
+        sampler="hitandrun",
+        burnin=30,
+        thin=1,
+        random_state=123
+    )
+
+    assert "feature_importance" in mcr
+    assert "mcr_min" in mcr
+    assert "mcr_max" in mcr
+    assert mcr["feature_importance"].shape == (3,)
+
+
+def test_mcr_respects_default_sampler():
+    """Test MCR defaults to instance sampler when not overridden."""
+    X, y = _make_data(n=50, d=3, seed=55)
+    rs = RashomonSet(
+        estimator="logistic",
+        epsilon=0.08,
+        epsilon_mode="percent_loss",
+        sampler="ellipsoid",
+        random_state=0
+    ).fit(X, y)
+
+    mcr = rs.model_class_reliance(
+        X, y,
+        n_permutations=4,
+        n_samples=10,
+        random_state=0
+    )
+
+    assert mcr["feature_importance"].shape == (3,)
+    assert mcr["mcr_min"].shape == (3,)
+
+
+def test_compare_to_bootstrap():
+    """Test bootstrap vs VIC comparison method."""
+    X, y = _make_data(n=80, d=3, seed=42)
+    rs = RashomonSet(
+        estimator="logistic",
+        epsilon=0.08,
+        epsilon_mode="percent_loss",
+        random_state=0
+    ).fit(X, y)
+
+    result = rs.compare_to_bootstrap(
+        X, y,
+        n_bootstrap=30,
+        n_rashomon=30,
+        confidence=0.90,
+        feature_names=["a", "b", "c"],
+        random_state=42
+    )
+
+    # Check all expected keys
+    assert "bootstrap_coefs" in result
+    assert "bootstrap_ci" in result
+    assert "bootstrap_mean" in result
+    assert "bootstrap_std" in result
+    assert "vic_samples" in result
+    assert "vic_intervals" in result
+    assert "vic_mean" in result
+    assert "vic_std" in result
+    assert "theta_hat" in result
+    assert "feature_names" in result
+    assert "confidence" in result
+    assert "divergence" in result
+
+    # Check shapes
+    assert result["bootstrap_coefs"].shape == (30, 3)
+    assert result["bootstrap_ci"].shape == (3, 2)
+    assert result["vic_samples"].shape == (30, 3)
+    assert result["vic_intervals"].shape == (3, 2)
+    assert result["theta_hat"].shape == (3,)
+
+    # Bootstrap CIs should bracket the mean
+    for j in range(3):
+        assert result["bootstrap_ci"][j, 0] <= result["bootstrap_mean"][j]
+        assert result["bootstrap_mean"][j] <= result["bootstrap_ci"][j, 1]
+
+    # Divergence should have per-feature metrics
+    assert len(result["divergence"]) == 3
+    for fname in ["a", "b", "c"]:
+        d = result["divergence"][fname]
+        assert "bootstrap_width" in d
+        assert "vic_width" in d
+        assert "width_ratio" in d
+        assert "overlap_iou" in d
+        assert d["bootstrap_width"] >= 0
+        assert d["vic_width"] >= 0
+        assert 0 <= d["overlap_iou"] <= 1.0 + 1e-10
 
