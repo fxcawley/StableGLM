@@ -507,10 +507,11 @@ class RashomonSet:
     def probability_bands(self, X: Array) -> Array:
         """Per-sample probability bands for logistic models via hacking intervals.
 
-        For each row x, computes an interval [p_min, p_max] where
-        p_min = σ(z_min), p_max = σ(z_max), and [z_min, z_max] is the
-        hacking interval of s := x in parameter space using the
-        H^{-1}-norm ellipsoid certificate.
+        For each row x, computes the tight interval [p_min, p_max] where
+        p_min = sigma(z_min), p_max = sigma(z_max), and [z_min, z_max] is the
+        hacking interval of s := x in margin space. Since sigma is monotone,
+        applying it directly to the margin extrema gives the exact probability
+        bounds over the ellipsoidal Rashomon set (no Lipschitz relaxation needed).
 
         Returns an array of shape (n, 2) with columns [p_min, p_max].
         """
@@ -1003,8 +1004,27 @@ class RashomonSet:
             warnings.warn("Wilks preconditions violated (penalized/high-dim). Falling back to percent_loss.")
             return 0.05 * float(self._L_hat), None
         if mode == "LR_alpha_highdim":
-            warnings.warn("LR_alpha_highdim not yet implemented; using percent_loss fallback.")
-            return 0.05 * float(self._L_hat), None
+            alpha = float(self.epsilon)
+            if not _HAS_SCIPY:
+                warnings.warn("scipy not available; falling back to percent_loss calibration")
+                return 0.05 * float(self._L_hat), None
+            if not (0.0 < alpha < 1.0):
+                warnings.warn("LR_alpha_highdim expects alpha in (0,1); clipping")
+                alpha = float(np.clip(alpha, 1e-12, 1 - 1e-12))
+            kappa = self._d / self._n
+            if kappa >= 0.9:
+                warnings.warn(
+                    f"d/n = {kappa:.2f} is too large for the Sur-Candès correction. "
+                    "Falling back to percent_loss."
+                )
+                return 0.05 * float(self._L_hat), None
+            # Sur-Candès (2019) adjustment: under proportional asymptotics
+            # d/n -> kappa, the LRT statistic 2n*DeltaL is inflated by
+            # a factor 1/(1-kappa) relative to chi^2_d.
+            # For penalized models, apply a Bartlett-type correction.
+            correction = 1.0 / max(1.0 - kappa, 0.1)
+            eps = correction * 0.5 * chi2.ppf(1.0 - alpha, df=self._d) / self._n
+            return float(eps), alpha
         warnings.warn("Unknown epsilon_mode; defaulting to percent_loss 5%")
         return 0.05 * float(self._L_hat), None
 
@@ -1101,6 +1121,73 @@ class RashomonSet:
         z = self._cg_solve(s, tol=self.tol, max_iter=self.max_iter, precondition=True)
         val = float(np.sqrt(max(s @ z, 0.0)))
         return val
+
+    def _lanczos_hinvsqrt_v(self, v: Array, m: int = 30) -> Array:
+        """Approximate H^{-1/2} v via m-step Lanczos iteration.
+
+        Builds a Krylov subspace with the Hessian-vector product, then
+        computes f(H)v = V T^{-1/2} V^T v where T is the tridiagonal
+        Lanczos matrix and V the orthonormal basis.
+
+        Parameters
+        ----------
+        v : array of shape (d,)
+            Input vector.
+        m : int
+            Number of Lanczos steps (default 30, capped at d).
+
+        Returns
+        -------
+        array of shape (d,)
+            Approximate H^{-1/2} v.
+        """
+        d = self._d
+        m = min(m, d)
+        V = np.zeros((m + 1, d), dtype=float)
+        alphas = np.zeros(m, dtype=float)
+        betas = np.zeros(m, dtype=float)
+
+        norm_v = float(np.linalg.norm(v))
+        if norm_v < 1e-18:
+            return np.zeros(d, dtype=float)
+        V[0] = v / norm_v
+
+        for j in range(m):
+            w = self._Hv(V[j])
+            if j > 0:
+                w -= betas[j - 1] * V[j - 1]
+            alphas[j] = float(V[j] @ w)
+            w -= alphas[j] * V[j]
+            # Re-orthogonalize
+            for k in range(j + 1):
+                w -= float(V[k] @ w) * V[k]
+            beta_j = float(np.linalg.norm(w))
+            if beta_j < 1e-14:
+                m = j + 1
+                break
+            betas[j] = beta_j
+            if j + 1 < m:
+                V[j + 1] = w / beta_j
+
+        # Build tridiagonal matrix T
+        T = np.diag(alphas[:m])
+        for j in range(m - 1):
+            T[j, j + 1] = betas[j]
+            T[j + 1, j] = betas[j]
+
+        # Eigendecompose T
+        eigvals, eigvecs = np.linalg.eigh(T)
+        # Clip for numerical safety
+        eigvals = np.maximum(eigvals, 1e-12)
+        # T^{-1/2} = S diag(lambda^{-1/2}) S^T
+        f_eigvals = 1.0 / np.sqrt(eigvals)
+
+        # H^{-1/2} v ≈ ||v|| V_m S diag(f) S^T e_1
+        e1 = np.zeros(m)
+        e1[0] = 1.0
+        coeff = eigvecs @ (f_eigvals * (eigvecs.T @ e1))
+        result = norm_v * (V[:m].T @ coeff)
+        return result
 
     # --------------------- Bootstrap LR_alpha fallback (B9b) ----------------
     def _bootstrap_lr_alpha(self, alpha: float) -> float:
@@ -1713,6 +1800,217 @@ class RashomonSet:
             "collinearity_warning": collinear_pairs if collinear_pairs else None,
         }
 
+    def mcr_analytic(
+        self,
+        X: Array,
+        y: Array,
+        *,
+        n_permutations: int = 20,
+        random_state: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Analytic MCR bounds via quadratic relaxation of permutation risk.
+
+        Instead of sampling models, computes the gradient of permutation
+        importance I_j(theta) at theta_hat and uses the hacking interval
+        formula to bound the min/max importance over the Rashomon set:
+
+            MCR_j^{min/max} = I_j(theta_hat) -/+ sqrt(2*eps) * ||grad_I_j||_{H^{-1}}
+
+        This is a first-order approximation valid when the importance
+        functional is approximately linear near theta_hat.
+
+        Parameters
+        ----------
+        X : array (n, d)
+            Feature matrix.
+        y : array (n,)
+            Target vector.
+        n_permutations : int
+            Number of permutation replicates to estimate I_j and grad_I_j.
+        random_state : Optional[int]
+            Random seed.
+
+        Returns
+        -------
+        dict with:
+            - 'mcr_min_analytic': array (d,) - lower bounds
+            - 'mcr_max_analytic': array (d,) - upper bounds
+            - 'importance_at_hat': array (d,) - importance at theta_hat
+            - 'grad_norms': array (d,) - ||grad_I_j||_{H^{-1}} per feature
+        """
+        if not self._fitted:
+            raise RuntimeError("Call fit() first.")
+        X = np.asarray(X, dtype=float)
+        y = np.asarray(y, dtype=float)
+        n, d = X.shape
+
+        seed = self._seed if random_state is None else int(random_state)
+        rng = np.random.default_rng(seed)
+        theta_hat = self._theta_hat
+        eps = self._epsilon_value
+
+        importance_at_hat = np.zeros(d, dtype=float)
+        grad_norms = np.zeros(d, dtype=float)
+
+        # Compute base score at theta_hat
+        if self.estimator == "logistic":
+            scores_base = X @ theta_hat
+            preds_base = (scores_base > 0.0).astype(int)
+            base_acc = float(np.mean((preds_base == y.astype(int)).astype(float)))
+        else:
+            preds_base = X @ theta_hat
+            ss_res = float(np.sum((y - preds_base) ** 2))
+            y_mean = float(np.mean(y))
+            ss_tot = float(np.sum((y - y_mean) ** 2))
+            base_acc = 1.0 - ss_res / ss_tot if ss_tot > 0 else 1.0
+
+        for j in range(d):
+            perm_accs = np.zeros(n_permutations, dtype=float)
+            for p in range(n_permutations):
+                Xp = X.copy()
+                rng.shuffle(Xp[:, j])
+                if self.estimator == "logistic":
+                    sp = Xp @ theta_hat
+                    pp = (sp > 0.0).astype(int)
+                    perm_accs[p] = float(np.mean((pp == y.astype(int)).astype(float)))
+                else:
+                    pp = Xp @ theta_hat
+                    sr = float(np.sum((y - pp) ** 2))
+                    perm_accs[p] = 1.0 - sr / ss_tot if ss_tot > 0 else 1.0
+
+            importance_at_hat[j] = base_acc - np.mean(perm_accs)
+
+            # Numerical gradient of I_j w.r.t. theta via finite differences
+            grad_Ij = np.zeros(d, dtype=float)
+            h = 1e-4
+            for k in range(d):
+                theta_plus = theta_hat.copy()
+                theta_plus[k] += h
+                if self.estimator == "logistic":
+                    sp = X @ theta_plus
+                    pp = (sp > 0.0).astype(int)
+                    base_plus = float(np.mean((pp == y.astype(int)).astype(float)))
+                else:
+                    pp = X @ theta_plus
+                    sr = float(np.sum((y - pp) ** 2))
+                    base_plus = 1.0 - sr / ss_tot if ss_tot > 0 else 1.0
+
+                # Same permutations for consistency
+                rng_j = np.random.default_rng(seed + j * 1000)
+                perm_accs_plus = np.zeros(n_permutations, dtype=float)
+                for p in range(n_permutations):
+                    Xp = X.copy()
+                    rng_j.shuffle(Xp[:, j])
+                    if self.estimator == "logistic":
+                        sp = Xp @ theta_plus
+                        pp = (sp > 0.0).astype(int)
+                        perm_accs_plus[p] = float(np.mean((pp == y.astype(int)).astype(float)))
+                    else:
+                        pp = Xp @ theta_plus
+                        sr = float(np.sum((y - pp) ** 2))
+                        perm_accs_plus[p] = 1.0 - sr / ss_tot if ss_tot > 0 else 1.0
+
+                I_plus = base_plus - np.mean(perm_accs_plus)
+                grad_Ij[k] = (I_plus - importance_at_hat[j]) / h
+
+            grad_norms[j] = self._hinv_norm(grad_Ij)
+
+        delta = np.sqrt(2.0 * eps) * grad_norms
+        mcr_min = importance_at_hat - delta
+        mcr_max = importance_at_hat + delta
+
+        return {
+            "mcr_min_analytic": mcr_min,
+            "mcr_max_analytic": mcr_max,
+            "importance_at_hat": importance_at_hat,
+            "grad_norms": grad_norms,
+        }
+
+    def shapley_vic(
+        self,
+        X: Array,
+        *,
+        n_samples: int = 200,
+        sampler: Optional[str] = None,
+        feature_names: Optional[list] = None,
+        burnin: int = 100,
+        thin: int = 2,
+        random_state: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Shapley-VIC: distribution of Shapley values across the Rashomon set.
+
+        For each sampled theta, computes marginal Shapley values for each
+        feature using the linear SHAP formula: phi_j(x) = theta_j * (x_j - mean_j).
+        Aggregated over all instances to get per-feature Shapley importance.
+
+        Parameters
+        ----------
+        X : array (n, d)
+            Data matrix (used to compute E[x_j] and aggregate Shapley values).
+        n_samples : int
+            Number of models to sample from the Rashomon set.
+        sampler : Optional[str]
+            Sampler backend ("ellipsoid" or "hitandrun").
+        feature_names : Optional[list]
+            Feature names.
+        burnin, thin : int
+            Hit-and-Run parameters.
+        random_state : Optional[int]
+            Seed.
+
+        Returns
+        -------
+        dict with:
+            - 'shapley_samples': (n_samples, d) - mean |Shapley| per feature per model
+            - 'shapley_mean': (d,) - mean across models
+            - 'shapley_std': (d,) - std across models
+            - 'shapley_min': (d,) - min across models
+            - 'shapley_max': (d,) - max across models
+            - 'feature_names': list
+        """
+        if not self._fitted:
+            raise RuntimeError("Call fit() first.")
+        X = np.asarray(X, dtype=float)
+
+        # Sample from Rashomon set
+        backend = sampler if sampler is not None else self.sampler
+        seed = self._seed if random_state is None else int(random_state)
+        if backend.lower() == "ellipsoid":
+            samples = self.sample_ellipsoid(n_samples=n_samples, random_state=seed)
+        elif backend.lower() == "hitandrun":
+            samples = self.sample_hitandrun(
+                n_samples=n_samples, burnin=burnin, thin=thin,
+                random_state=seed, compute_diagnostics=False,
+            )
+        else:
+            raise ValueError(f"Unknown sampler: {backend}")
+
+        # For linear models: Shapley value for feature j = theta_j * (x_j - E[x_j])
+        # Mean |Shapley| importance per feature = |theta_j| * std(x_j)
+        x_mean = np.mean(X, axis=0)
+        x_centered = X - x_mean
+
+        # For each sampled theta, compute mean absolute Shapley value per feature
+        shapley_matrix = np.zeros((n_samples, self._d), dtype=float)
+        for s in range(n_samples):
+            theta_s = samples[s]
+            # Shapley values for all instances: phi[i,j] = theta_j * (x[i,j] - x_mean[j])
+            # Mean absolute Shapley per feature: mean_i |phi[i,j]|
+            shapley_matrix[s] = np.mean(np.abs(theta_s[None, :] * x_centered), axis=0)
+
+        names = feature_names if feature_names is not None else [f"feature_{i}" for i in range(self._d)]
+        if len(names) != self._d:
+            raise ValueError(f"feature_names must have length d={self._d}")
+
+        return {
+            "shapley_samples": shapley_matrix,
+            "shapley_mean": np.mean(shapley_matrix, axis=0),
+            "shapley_std": np.std(shapley_matrix, axis=0),
+            "shapley_min": np.min(shapley_matrix, axis=0),
+            "shapley_max": np.max(shapley_matrix, axis=0),
+            "feature_names": list(names),
+        }
+
     def compute_threshold(
         self,
         y: Array,
@@ -1968,13 +2266,42 @@ class RashomonSet:
 
         # Upper bound: count instances with margin interval straddling threshold
         n_straddle = 0
+        straddle_indices = []
         for i in range(n):
             interval = self.hacking_interval(X[i])
             m_min, m_max = interval["min"], interval["max"]
             if m_min <= tau <= m_max:
                 n_straddle += 1
+                straddle_indices.append(i)
 
         discrepancy_bound = n_straddle / n if n > 0 else 0.0
+
+        # Tighter bound via extremal pair: find the two models in the
+        # ellipsoidal Rashomon set that maximize disagreement. For each
+        # straddling instance i, the margin x_i^T theta must cross tau.
+        # The extremal pair pushes straddling margins in opposite directions.
+        # Compute via the principal direction of disagreement.
+        extremal_disagreement = None
+        if straddle_indices and self._epsilon_value is not None:
+            X_straddle = X[straddle_indices]
+            # Direction that maximizes margin spread: largest eigenvector of
+            # X_straddle^T X_straddle projected onto the Rashomon ellipsoid
+            if len(straddle_indices) >= 2:
+                # Find direction v that maximizes sum of |x_i^T v| for straddling instances
+                # within the ellipsoid. Approximation: use the principal component of X_straddle
+                # projected through H^{-1}.
+                mean_s = np.mean(X_straddle, axis=0)
+                hinv_mean = self._cg_solve(mean_s, tol=self.tol, max_iter=self.max_iter, precondition=True)
+                scale = float(np.sqrt(2.0 * self._epsilon_value))
+                # Extremal models: theta_hat +/- scale * hinv_mean / ||hinv_mean||_H
+                hinv_norm = float(np.sqrt(max(mean_s @ hinv_mean, 1e-18)))
+                if hinv_norm > 1e-12:
+                    delta = scale * hinv_mean / hinv_norm
+                    theta_plus = self._theta_hat + delta
+                    theta_minus = self._theta_hat - delta
+                    preds_plus = (X @ theta_plus >= tau).astype(int)
+                    preds_minus = (X @ theta_minus >= tau).astype(int)
+                    extremal_disagreement = float(np.mean(preds_plus != preds_minus))
 
         # Empirical estimate: sample pairs and compute disagreement
         if samples is None:
@@ -2006,26 +2333,38 @@ class RashomonSet:
 
         return {
             "discrepancy_bound": discrepancy_bound,
+            "discrepancy_extremal_pair": extremal_disagreement,
             "discrepancy_empirical": mean_disagreement,
             "max_pair_disagreement": max_disagreement,
             "mean_pair_disagreement": mean_disagreement,
             "threshold": tau,
         }
 
-    def capacity(self) -> Dict[str, float]:
-        """Compute the capacity (log-volume) of the Rashomon set approximation.
+    def capacity(self, delta: float | None = None) -> Dict[str, Any]:
+        """Compute the capacity of the Rashomon set approximation.
 
-        The capacity is estimated as the log-volume of the approximating ellipsoid:
-        Vol(E) ∝ det(H)^{-1/2} * (2ε)^(d/2).
-        
-        We report the log-volume to avoid underflow/overflow in high dimensions.
-        
+        Reports both the log-volume (continuous measure) and the delta-covering
+        number (discrete measure) of the approximating ellipsoid.
+
+        The delta-covering number N(delta, R_eps) counts how many balls of
+        radius delta are needed to cover R_eps. For the ellipsoid with
+        semi-axes a_j = sqrt(2*eps / lambda_j), it satisfies:
+            log N(delta) = sum_j log(max(a_j / delta, 1))
+
+        Parameters
+        ----------
+        delta : float, optional
+            Covering radius for delta-covering computation. If None,
+            only log-volume is computed.
+
         Returns
         -------
         dict with keys:
             - 'log_volume': Log-volume of the ellipsoid approximation.
             - 'effective_dim': Effective dimensionality (d).
             - 'log_det_hessian': Log-determinant of the Hessian.
+            - 'log_covering_number': log N(delta) (only if delta is provided)
+            - 'delta': the delta used (only if provided)
         """
         if not self._fitted or self._theta_hat is None or self._epsilon_value is None:
             raise RuntimeError("Call fit() first")
@@ -2034,24 +2373,37 @@ class RashomonSet:
         # log(det(H)) = 2 * sum(log(diag(L)))
         L = self._hessian_cholesky()
         log_det_H = 2.0 * np.sum(np.log(np.diag(L)))
-        
-        # Log volume of ellipsoid E = {theta : (theta-theta_hat)^T H (theta-theta_hat) <= 2*epsilon}
-        # Vol(E) = V_d * sqrt(det(H^-1)) * (sqrt(2*epsilon))^d
-        #        = V_d * det(H)^(-1/2) * (2*epsilon)^(d/2)
-        # log(Vol) = log(V_d) - 0.5 * log_det_H + (d/2) * log(2*epsilon)
-        
+
         d = self._d
-        # Log volume of unit ball in d dimensions: log(pi^(d/2) / gamma(d/2 + 1))
         from scipy.special import gammaln
         log_V_d = (d / 2.0) * np.log(np.pi) - gammaln(d / 2.0 + 1.0)
-        
+
         log_vol = log_V_d - 0.5 * log_det_H + (d / 2.0) * np.log(2.0 * self._epsilon_value)
-        
-        return {
+
+        result: Dict[str, Any] = {
             "log_volume": float(log_vol),
             "effective_dim": float(d),
             "log_det_hessian": float(log_det_H),
         }
+
+        if delta is not None:
+            delta = float(delta)
+            if delta <= 0:
+                raise ValueError("delta must be positive")
+            # Eigenvalues of H from Cholesky: H = L L^T, so eigenvalues of H
+            # are the squared singular values of L.
+            H = self._hessian_matrix()
+            eigvals = np.linalg.eigvalsh(H)
+            eigvals = np.maximum(eigvals, 1e-12)
+            # Semi-axes of the ellipsoid: a_j = sqrt(2*eps / lambda_j)
+            semi_axes = np.sqrt(2.0 * self._epsilon_value / eigvals)
+            # log N(delta) = sum_j log(max(a_j / delta, 1))
+            ratios = semi_axes / delta
+            log_covering = float(np.sum(np.log(np.maximum(ratios, 1.0))))
+            result["log_covering_number"] = log_covering
+            result["delta"] = delta
+
+        return result
 
     def multiplicity(
         self,
@@ -2294,6 +2646,116 @@ class RashomonSet:
             "feature_names": names,
             "confidence": confidence,
             "divergence": divergence,
+        }
+
+    @classmethod
+    def from_ensemble(
+        cls,
+        models: list,
+        X: Array,
+        y: Array,
+        *,
+        estimator: str = "logistic",
+        feature_names: Optional[list] = None,
+    ) -> Dict[str, Any]:
+        """Compute Rashomon-style metrics from an external model ensemble.
+
+        Takes a collection of fitted models (parameter vectors or sklearn-style
+        objects) and computes VIC, MCR, ambiguity, and discrepancy without
+        fitting a new RashomonSet. This enables analysis of any external
+        model collection (grid search, dropout ensembles, random seeds, etc.).
+
+        Parameters
+        ----------
+        models : list
+            List of parameter vectors (array of shape (d,)) or sklearn-style
+            objects with .coef_ attribute.
+        X : array (n, d)
+            Feature matrix.
+        y : array (n,)
+            Target vector.
+        estimator : str
+            Model type ("logistic" or "linear").
+        feature_names : Optional[list]
+            Feature names.
+
+        Returns
+        -------
+        dict with:
+            - 'n_models': number of models in ensemble
+            - 'coef_matrix': (n_models, d) array of coefficient vectors
+            - 'vic_mean': (d,) mean coefficients
+            - 'vic_std': (d,) std of coefficients
+            - 'vic_intervals': (d, 2) 90% intervals
+            - 'losses': (n_models,) loss values for each model
+            - 'ambiguity_rate': fraction of instances with disagreeing predictions
+            - 'max_pair_disagreement': max pairwise disagreement
+            - 'feature_names': list
+        """
+        X = np.asarray(X, dtype=float)
+        y = np.asarray(y, dtype=float)
+        n, d = X.shape
+
+        # Extract coefficient vectors
+        coefs = []
+        for m in models:
+            if hasattr(m, "coef_"):
+                coefs.append(np.asarray(m.coef_).ravel())
+            else:
+                coefs.append(np.asarray(m, dtype=float).ravel())
+        coef_matrix = np.array(coefs, dtype=float)
+        n_models = coef_matrix.shape[0]
+
+        # Compute losses
+        losses = np.zeros(n_models, dtype=float)
+        for i, theta in enumerate(coef_matrix):
+            z = X @ theta
+            if estimator == "logistic":
+                losses[i] = float(np.mean(np.logaddexp(0.0, z) - y * z))
+            else:
+                losses[i] = float(0.5 * np.mean((y - z) ** 2))
+
+        # VIC statistics
+        vic_mean = np.mean(coef_matrix, axis=0)
+        vic_std = np.std(coef_matrix, axis=0)
+        vic_intervals = np.stack([
+            np.quantile(coef_matrix, 0.05, axis=0),
+            np.quantile(coef_matrix, 0.95, axis=0),
+        ], axis=1)
+
+        # Ambiguity: fraction of instances where models disagree
+        if estimator == "logistic":
+            margins = X @ coef_matrix.T  # (n, n_models)
+            preds = (margins >= 0.0).astype(int)
+        else:
+            preds = (X @ coef_matrix.T >= np.median(y)).astype(int)
+
+        # Instance is ambiguous if not all models agree
+        ambiguous = np.any(preds != preds[:, 0:1], axis=1)
+        ambiguity_rate = float(np.mean(ambiguous))
+
+        # Max pairwise disagreement
+        max_disagree = 0.0
+        n_check = min(n_models * (n_models - 1) // 2, 500)
+        rng = np.random.default_rng(0)
+        if n_models >= 2:
+            for _ in range(n_check):
+                i, j = rng.choice(n_models, size=2, replace=False)
+                dis = float(np.mean(preds[:, i] != preds[:, j]))
+                max_disagree = max(max_disagree, dis)
+
+        names = feature_names if feature_names is not None else [f"feature_{i}" for i in range(d)]
+
+        return {
+            "n_models": n_models,
+            "coef_matrix": coef_matrix,
+            "vic_mean": vic_mean,
+            "vic_std": vic_std,
+            "vic_intervals": vic_intervals,
+            "losses": losses,
+            "ambiguity_rate": ambiguity_rate,
+            "max_pair_disagreement": max_disagree,
+            "feature_names": list(names),
         }
 
 

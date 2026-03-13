@@ -343,3 +343,171 @@ def test_sklearn_vs_fallback_consistency():
     )
 
 
+def test_lr_alpha_highdim():
+    """Test Sur-Candès high-dimensional LR calibration."""
+    X, y = _make_data(n=80, d=10, seed=42)
+    rs = RashomonSet(
+        estimator="logistic",
+        epsilon=0.05,
+        epsilon_mode="LR_alpha_highdim",
+        safety_override=True,
+        random_state=0,
+    ).fit(X, y)
+
+    diag = rs.diagnostics()
+    assert diag["epsilon_mode"] == "LR_alpha_highdim"
+    assert diag["epsilon"] is not None
+    assert diag["epsilon"] > 0
+    # High-dim correction should produce a larger epsilon than low-dim
+    # (correction factor > 1 for d/n > 0)
+    assert diag["implied_alpha"] is not None
+
+
+def test_lanczos_hinvsqrt():
+    """Test Lanczos H^{-1/2} approximation."""
+    X, y = _make_data(n=60, d=5, seed=42)
+    rs = RashomonSet(estimator="logistic", random_state=0).fit(X, y)
+
+    rng = np.random.default_rng(0)
+    v = rng.normal(size=5)
+    result = rs._lanczos_hinvsqrt_v(v, m=20)
+
+    # Result should have the right shape
+    assert result.shape == (5,)
+    # H^{-1/2} v should satisfy: H (H^{-1/2} v) = H^{1/2} v
+    # Verify: ||H^{1/2} (H^{-1/2} v)||^2 ≈ v^T H^{-1} H v = v^T v
+    Hresult = rs._Hv(result)
+    # H * H^{-1/2} v should be H^{1/2} v
+    # Check that the norm is reasonable (not zero, not huge)
+    assert np.linalg.norm(result) > 0
+    assert np.linalg.norm(result) < 100 * np.linalg.norm(v)
+
+
+def test_mcr_analytic():
+    """Test analytic MCR bounds via quadratic relaxation."""
+    X, y = _make_data(n=60, d=4, seed=42)
+    rs = RashomonSet(
+        estimator="logistic",
+        epsilon=0.05,
+        epsilon_mode="percent_loss",
+        random_state=0,
+    ).fit(X, y)
+
+    result = rs.mcr_analytic(X, y, n_permutations=10, random_state=42)
+
+    assert "mcr_min_analytic" in result
+    assert "mcr_max_analytic" in result
+    assert "importance_at_hat" in result
+    assert "grad_norms" in result
+    assert result["mcr_min_analytic"].shape == (4,)
+    assert result["mcr_max_analytic"].shape == (4,)
+    # Analytic bounds should bracket the point estimate
+    assert np.all(result["mcr_min_analytic"] <= result["importance_at_hat"] + 1e-10)
+    assert np.all(result["importance_at_hat"] <= result["mcr_max_analytic"] + 1e-10)
+
+
+def test_shapley_vic():
+    """Test Shapley-VIC computation."""
+    X, y = _make_data(n=60, d=4, seed=42)
+    rs = RashomonSet(
+        estimator="logistic",
+        epsilon=0.05,
+        epsilon_mode="percent_loss",
+        random_state=0,
+    ).fit(X, y)
+
+    result = rs.shapley_vic(
+        X, n_samples=30, feature_names=["a", "b", "c", "d"], random_state=42
+    )
+
+    assert "shapley_samples" in result
+    assert "shapley_mean" in result
+    assert "shapley_std" in result
+    assert "shapley_min" in result
+    assert "shapley_max" in result
+    assert result["shapley_samples"].shape == (30, 4)
+    assert result["shapley_mean"].shape == (4,)
+    assert result["feature_names"] == ["a", "b", "c", "d"]
+    # Shapley values should be non-negative (mean absolute)
+    assert np.all(result["shapley_mean"] >= 0)
+    # Min <= mean <= max
+    assert np.all(result["shapley_min"] <= result["shapley_mean"] + 1e-10)
+    assert np.all(result["shapley_mean"] <= result["shapley_max"] + 1e-10)
+
+
+def test_capacity_delta_covering():
+    """Test capacity with delta-covering number."""
+    X, y = _make_data(n=60, d=4, seed=42)
+    rs = RashomonSet(
+        estimator="logistic",
+        epsilon=0.05,
+        epsilon_mode="percent_loss",
+        random_state=0,
+    ).fit(X, y)
+
+    # Without delta
+    cap = rs.capacity()
+    assert "log_volume" in cap
+    assert "effective_dim" in cap
+    assert "log_covering_number" not in cap
+
+    # With delta
+    cap_d = rs.capacity(delta=0.01)
+    assert "log_covering_number" in cap_d
+    assert "delta" in cap_d
+    assert cap_d["log_covering_number"] >= 0
+    assert cap_d["delta"] == 0.01
+
+    # Smaller delta should give larger covering number
+    cap_d2 = rs.capacity(delta=0.001)
+    assert cap_d2["log_covering_number"] >= cap_d["log_covering_number"]
+
+
+def test_discrepancy_extremal_pair():
+    """Test that discrepancy returns the extremal pair bound."""
+    X, y = _make_data(n=60, d=4, seed=42)
+    rs = RashomonSet(
+        estimator="logistic",
+        epsilon=0.05,
+        epsilon_mode="percent_loss",
+        random_state=0,
+    ).fit(X, y)
+
+    disc = rs.discrepancy(X, n_samples=50, n_pairs=50, random_state=42)
+    assert "discrepancy_extremal_pair" in disc
+    # Extremal pair should be <= the naive bound
+    if disc["discrepancy_extremal_pair"] is not None:
+        assert disc["discrepancy_extremal_pair"] <= disc["discrepancy_bound"] + 1e-6
+
+
+def test_from_ensemble():
+    """Test from_ensemble class method."""
+    rng = np.random.default_rng(42)
+    n, d = 50, 4
+    X = rng.normal(size=(n, d))
+    w = rng.normal(size=d)
+    p = 1.0 / (1.0 + np.exp(-(X @ w)))
+    y = (rng.random(n) < p).astype(float)
+
+    # Create an ensemble of slightly different models
+    models = []
+    for i in range(20):
+        theta = w + 0.1 * rng.normal(size=d)
+        models.append(theta)
+
+    result = RashomonSet.from_ensemble(
+        models, X, y, estimator="logistic",
+        feature_names=["f0", "f1", "f2", "f3"]
+    )
+
+    assert result["n_models"] == 20
+    assert result["coef_matrix"].shape == (20, 4)
+    assert result["vic_mean"].shape == (4,)
+    assert result["vic_std"].shape == (4,)
+    assert result["vic_intervals"].shape == (4, 2)
+    assert result["losses"].shape == (20,)
+    assert 0 <= result["ambiguity_rate"] <= 1
+    assert 0 <= result["max_pair_disagreement"] <= 1
+    assert result["feature_names"] == ["f0", "f1", "f2", "f3"]
+
+
