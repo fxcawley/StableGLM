@@ -616,3 +616,67 @@ def test_fit_intercept_linear():
     assert rs.score(X, y) > 0.5
 
 
+def test_fit_intercept_all_methods():
+    """Exercise every public method with fit_intercept=True."""
+    X, y = _make_data(n=80, d=4, seed=42)
+    rs = RashomonSet(
+        estimator="logistic", fit_intercept=True, epsilon=0.05,
+        epsilon_mode="percent_loss", random_state=0, safety_override=True,
+    ).fit(X, y)
+
+    # Prediction methods
+    rs.predict(X)
+    rs.predict_proba(X)
+    rs.decision_function(X)
+    rs.score(X, y)
+
+    # Certificates
+    rs.probability_bands(X[:5])
+    rs.coef_intervals()
+
+    # Sampling
+    rs.sample_ellipsoid(n_samples=10, random_state=0)
+    rs.sample_hitandrun(n_samples=10, burnin=10, thin=1, random_state=0)
+
+    # VIC
+    vic = rs.variable_importance_cloud(n_samples=10, random_state=0)
+    assert vic["samples"].shape[1] == 5  # d+1 (internal dim)
+
+    # MCR
+    mcr = rs.model_class_reliance(X, y, n_permutations=4, n_samples=10, random_state=0)
+    assert mcr["feature_importance"].shape == (5,)  # d+1 (internal)
+
+    # Analytic MCR
+    mcr_a = rs.mcr_analytic(X, y, n_permutations=4, random_state=0)
+    assert mcr_a["importance_at_hat"].shape == (5,)
+
+    # Shapley VIC
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        sv = rs.shapley_vic(X, n_samples=10, random_state=0)
+    assert sv["shapley_mean"].shape == (5,)
+
+    # Multiplicity
+    amb = rs.ambiguity(X, threshold_mode="fixed", threshold_value=0.5)
+    assert 0 <= amb["ambiguity_rate"] <= 1
+
+    disc = rs.discrepancy(X, n_samples=10, n_pairs=5, random_state=0)
+    assert "discrepancy_bound" in disc
+
+    # Capacity
+    cap = rs.capacity()
+    assert "log_volume" in cap
+
+    # Bootstrap comparison
+    comp = rs.compare_to_bootstrap(
+        X, y, n_bootstrap=10, n_rashomon=10, random_state=0,
+    )
+    assert comp["bootstrap_ci"].shape == (4, 2)  # d_original features
+    assert comp["vic_intervals"].shape == (4, 2)
+
+    # Bayesian comparison
+    bayes = rs.compare_to_bayesian(n_samples=10, random_state=0)
+    assert "bayesian_ci" in bayes
+
+

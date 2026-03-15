@@ -1,8 +1,8 @@
 """Real-world dataset tests for StableGLM/rashomon-py.
 
-Tests the full pipeline on real datasets:
-- Classification: breast cancer, diabetes, credit risk
-- Regression: boston housing, diabetes progression
+Tests the full pipeline on real and synthetic datasets:
+- Classification: breast cancer (real), synthetic binary
+- Regression: synthetic linear
 - Metrics: VIC, MCR, ambiguity, discrepancy
 - Samplers: ellipsoid, hit-and-run
 """
@@ -136,8 +136,8 @@ def test_breast_cancer():
 
 
 def test_diabetes_classification():
-    """Test on Pima Indians Diabetes dataset."""
-    print_section("2. Diabetes Classification (Pima Indians)")
+    """Test on synthetic binary classification data."""
+    print_section("2. Synthetic Binary Classification")
 
     try:
         from sklearn.preprocessing import StandardScaler
@@ -376,7 +376,7 @@ def main():
 
     tests = [
         ("Breast Cancer Classification", test_breast_cancer),
-        ("Diabetes Classification", test_diabetes_classification),
+        ("Synthetic Binary Classification", test_diabetes_classification),
         ("Linear Regression", test_linear_regression),
         ("Small Sample Robustness", test_small_sample_robustness),
         ("High Epsilon Multiplicity", test_high_epsilon_multiplicity),

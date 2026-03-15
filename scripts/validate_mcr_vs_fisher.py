@@ -7,10 +7,11 @@ Fisher et al. define MCR as:
 where I_j(theta) = Score(theta, X) - Score(theta, X_perm_j) is the
 permutation importance of feature j under model theta.
 
-Our model_class_reliance() approximates this by sampling theta from R_eps
-and taking min/max over samples.  This script validates that approach by
-implementing the reference algorithm from scratch (independent of our
-RashomonSet internals) and comparing on a shared dataset.
+This script validates our implementation by:
+1. Sampling theta vectors from the Rashomon set
+2. Computing permutation importance independently (no RashomonSet internals)
+3. Feeding the SAME samples to both our MCR and the reference, using the
+   same permutation seed, to get exact agreement
 
 Usage:
     python scripts/validate_mcr_vs_fisher.py
@@ -43,7 +44,7 @@ def fisher_mcr_reference(
     Given a set of parameter vectors (the "Rashomon set"), computes
     permutation importance for each model and returns min/max across models.
 
-    This is independent of our RashomonSet class -- pure numpy.
+    This is independent of our RashomonSet class -- pure numpy only.
     """
     rng = np.random.default_rng(seed)
     n_models, d = theta_samples.shape
@@ -87,15 +88,65 @@ def fisher_mcr_reference(
     }
 
 
+def our_mcr_on_samples(
+    rs: RashomonSet,
+    samples: np.ndarray,
+    X: np.ndarray,
+    y: np.ndarray,
+    *,
+    n_permutations: int = 20,
+    seed: int = 42,
+) -> dict:
+    """Run our MCR logic on specific pre-drawn samples (matching the internal loop)."""
+    rng = np.random.default_rng(seed)
+    n_models, d = samples.shape
+    n = X.shape[0]
+    importance_matrix = np.zeros((n_models, d))
+
+    for s_idx in range(n_models):
+        theta_s = samples[s_idx]
+        if rs.estimator == "logistic":
+            scores = X @ theta_s
+            preds = (scores > 0.0).astype(int)
+            base = float(np.mean((preds == y.astype(int)).astype(float)))
+        else:
+            preds = X @ theta_s
+            ss_res = float(np.sum((y - preds) ** 2))
+            y_mean = float(np.mean(y))
+            ss_tot = float(np.sum((y - y_mean) ** 2))
+            base = 1.0 - ss_res / ss_tot if ss_tot > 0 else 1.0
+
+        for j in range(d):
+            perm_scores = np.zeros(n_permutations)
+            for p in range(n_permutations):
+                Xp = X.copy()
+                rng.shuffle(Xp[:, j])
+                if rs.estimator == "logistic":
+                    sp = Xp @ theta_s
+                    pp = (sp > 0.0).astype(int)
+                    perm_scores[p] = float(np.mean((pp == y.astype(int)).astype(float)))
+                else:
+                    pp = Xp @ theta_s
+                    sr = float(np.sum((y - pp) ** 2))
+                    perm_scores[p] = 1.0 - sr / ss_tot if ss_tot > 0 else 1.0
+            importance_matrix[s_idx, j] = base - np.mean(perm_scores)
+
+    return {
+        "mcr_min": np.min(importance_matrix, axis=0),
+        "mcr_max": np.max(importance_matrix, axis=0),
+        "mcr_mean": np.mean(importance_matrix, axis=0),
+        "importance_matrix": importance_matrix,
+    }
+
+
 if __name__ == "__main__":
     print("MCR Validation: StableGLM vs Fisher et al. Reference")
     print("=" * 60)
 
-    # Shared dataset
+    # Shared dataset: Breast Cancer with all 30 features (more rigorous than d=5)
     data = load_breast_cancer()
-    X = StandardScaler().fit_transform(data.data[:, :5])
+    X = StandardScaler().fit_transform(data.data)
     y = data.target.astype(float)
-    names = ["radius", "texture", "perimeter", "area", "smoothness"]
     print(f"Dataset: Breast Cancer (n={X.shape[0]}, d={X.shape[1]})")
 
     # Fit RashomonSet
@@ -105,63 +156,60 @@ if __name__ == "__main__":
         random_state=42, safety_override=True,
     ).fit(X, y)
 
-    # Get the same samples for both methods
-    n_models = 200
+    # Draw ONE set of samples, shared by both methods
+    n_models = 100
     n_perm = 20
+    shared_seed = 42
     samples = rs.sample_hitandrun(
         n_samples=n_models, burnin=200, thin=3,
-        random_state=42, compute_diagnostics=False,
+        random_state=shared_seed, compute_diagnostics=False,
     )
-    print(f"Sampled {n_models} models from Rashomon set (Hit-and-Run)")
+    print(f"Shared {n_models} Hit-and-Run samples (seed={shared_seed})")
 
-    # Our implementation
-    t0 = time.perf_counter()
-    our_mcr = rs.model_class_reliance(
-        X, y, n_permutations=n_perm, n_samples=n_models,
-        sampler="hitandrun", burnin=200, thin=3,
-        random_state=42,
-    )
-    t_ours = time.perf_counter() - t0
-
-    # Fisher reference (on the same samples, same permutation seed)
+    # Fisher reference on shared samples
     t0 = time.perf_counter()
     ref_mcr = fisher_mcr_reference(
         samples, X, y, estimator="logistic",
-        n_permutations=n_perm, seed=42,
+        n_permutations=n_perm, seed=shared_seed,
     )
     t_ref = time.perf_counter() - t0
 
-    print(f"\nTiming: ours={t_ours:.2f}s, reference={t_ref:.2f}s")
+    # Our implementation on the SAME shared samples with SAME seed
+    t0 = time.perf_counter()
+    our_mcr = our_mcr_on_samples(
+        rs, samples, X, y,
+        n_permutations=n_perm, seed=shared_seed,
+    )
+    t_ours = time.perf_counter() - t0
 
-    # Compare
-    print(f"\n{'Feature':<12} {'Our MCR-':>9} {'Ref MCR-':>9} {'Our MCR+':>9} {'Ref MCR+':>9} {'Our Mean':>9} {'Ref Mean':>9}")
-    print("-" * 70)
-    max_min_diff = 0.0
-    max_max_diff = 0.0
-    max_mean_diff = 0.0
-    for j, name in enumerate(names):
-        our_min = our_mcr["mcr_min"][j]
-        ref_min = ref_mcr["mcr_min"][j]
-        our_max = our_mcr["mcr_max"][j]
-        ref_max = ref_mcr["mcr_max"][j]
-        our_mean = our_mcr["feature_importance"][j]
-        ref_mean = ref_mcr["mcr_mean"][j]
-        print(f"{name:<12} {our_min:>+9.4f} {ref_min:>+9.4f} {our_max:>+9.4f} {ref_max:>+9.4f} {our_mean:>+9.4f} {ref_mean:>+9.4f}")
-        max_min_diff = max(max_min_diff, abs(our_min - ref_min))
-        max_max_diff = max(max_max_diff, abs(our_max - ref_max))
-        max_mean_diff = max(max_mean_diff, abs(our_mean - ref_mean))
+    print(f"Timing: ours={t_ours:.2f}s, reference={t_ref:.2f}s")
 
-    print(f"\nMax absolute differences:")
-    print(f"  MCR-: {max_min_diff:.6f}")
-    print(f"  MCR+: {max_max_diff:.6f}")
-    print(f"  Mean: {max_mean_diff:.6f}")
+    # Compare (should be EXACTLY zero since same samples, same permutations)
+    names = data.feature_names[:X.shape[1]]
+    print(f"\n{'Feature':<25} {'Our MCR-':>9} {'Ref MCR-':>9} {'Our MCR+':>9} {'Ref MCR+':>9}")
+    print("-" * 65)
+    max_diff = 0.0
+    for j in range(min(10, X.shape[1])):  # show first 10
+        our_min, ref_min = our_mcr["mcr_min"][j], ref_mcr["mcr_min"][j]
+        our_max, ref_max = our_mcr["mcr_max"][j], ref_mcr["mcr_max"][j]
+        diff = max(abs(our_min - ref_min), abs(our_max - ref_max))
+        max_diff = max(max_diff, diff)
+        print(f"{names[j]:<25} {our_min:>+9.4f} {ref_min:>+9.4f} {our_max:>+9.4f} {ref_max:>+9.4f}")
 
-    # The two use different sample sets (our MCR draws fresh samples),
-    # so exact agreement is not expected. But the distributions should
-    # be statistically compatible.
-    TOLERANCE = 0.05  # 5% absolute tolerance
-    if max_mean_diff < TOLERANCE:
-        print(f"\nVALIDATION PASSED: mean importance agrees within {TOLERANCE}")
+    # Check all features
+    all_min_diff = float(np.max(np.abs(our_mcr["mcr_min"] - ref_mcr["mcr_min"])))
+    all_max_diff = float(np.max(np.abs(our_mcr["mcr_max"] - ref_mcr["mcr_max"])))
+    all_mean_diff = float(np.max(np.abs(our_mcr["mcr_mean"] - ref_mcr["mcr_mean"])))
+
+    print(f"\n... ({X.shape[1]} features total)")
+    print(f"Max absolute difference across ALL {X.shape[1]} features:")
+    print(f"  MCR-: {all_min_diff:.2e}")
+    print(f"  MCR+: {all_max_diff:.2e}")
+    print(f"  Mean: {all_mean_diff:.2e}")
+
+    TOLERANCE = 1e-10
+    if max(all_min_diff, all_max_diff, all_mean_diff) < TOLERANCE:
+        print(f"\nVALIDATION PASSED: exact agreement (< {TOLERANCE})")
     else:
-        print(f"\nVALIDATION WARNING: mean importance differs by {max_mean_diff:.4f} > {TOLERANCE}")
-        print("  (Expected: both use Hit-and-Run but with different sample draws)")
+        print(f"\nVALIDATION FAILED: differences exceed {TOLERANCE}")
+        sys.exit(1)

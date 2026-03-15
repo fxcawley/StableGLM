@@ -25,7 +25,9 @@ Array = np.ndarray
 
 
 def _sigmoid(z: Array) -> Array:
-    return 1.0 / (1.0 + np.exp(-z))
+    """Numerically stable sigmoid: avoids overflow for large negative z."""
+    z = np.asarray(z, dtype=float)
+    return np.where(z >= 0, 1.0 / (1.0 + np.exp(-z)), np.exp(z) / (1.0 + np.exp(z)))
 
 
 class _MembershipOracle:
@@ -1031,8 +1033,12 @@ class RashomonSet:
             if not (0.0 < alpha < 1.0):
                 warnings.warn("LR_alpha expects alpha in (0,1); clipping")
                 alpha = float(np.clip(alpha, 1e-12, 1 - 1e-12))
-            precond_ok = self._lambda is not None and self._lambda == 0.0
-            if precond_ok or self.safety_override:
+            # Wilks' theorem: 2n*DeltaL ~ chi^2_d. Exact when lambda=0 (unpenalized);
+            # approximate under weak penalization. Use chi2 path when lambda is
+            # small relative to the data term, or when user overrides.
+            lam_ratio = self._lambda * self._d / (float(self._L_hat) + 1e-12)
+            wilks_ok = lam_ratio < 0.1  # regularization contributes < 10% of loss
+            if wilks_ok or self.safety_override:
                 eps = 0.5 * chi2.ppf(1.0 - alpha, df=self._d) / self._n
                 return float(eps), alpha
             if self.bootstrap_fallback:
@@ -1605,7 +1611,7 @@ class RashomonSet:
         if not self._fitted:
             raise RuntimeError("Call fit() first")
 
-        X = np.asarray(X)
+        X = self._prepare_X(np.asarray(X))
 
         # 1. Get samples
         if samples is None:
@@ -1702,7 +1708,7 @@ class RashomonSet:
         """
         if not self._fitted:
             raise RuntimeError("Call fit() first.")
-        X = np.asarray(X)
+        X = self._prepare_X(np.asarray(X))
         y = np.asarray(y)
         if X.ndim != 2 or X.shape[1] != self._d:
             raise ValueError("X must be 2D with d features")
@@ -1824,8 +1830,15 @@ class RashomonSet:
         mcr_min = np.min(importance_matrix, axis=0)
         mcr_max = np.max(importance_matrix, axis=0)
 
-        # Compute base score on original parameter
-        base_score = self.score(X, y)
+        # Compute base score on original parameter (using already-augmented X)
+        if self.estimator == "logistic":
+            y_pred = (X @ self._theta_hat > 0.0).astype(int)
+            base_score = float(np.mean((y_pred == y.astype(int)).astype(float)))
+        else:
+            y_pred = X @ self._theta_hat
+            ss_res_base = float(np.sum((y - y_pred) ** 2))
+            ss_tot_base = float(np.sum((y - np.mean(y)) ** 2))
+            base_score = 1.0 - ss_res_base / ss_tot_base if ss_tot_base > 0 else 1.0
 
         return {
             "feature_importance": mean_importance,
@@ -1901,7 +1914,7 @@ class RashomonSet:
         """
         if not self._fitted:
             raise RuntimeError("Call fit() first.")
-        X = np.asarray(X, dtype=float)
+        X = self._prepare_X(np.asarray(X, dtype=float))
         y = np.asarray(y, dtype=float)
         n, d = X.shape
 
@@ -2034,7 +2047,7 @@ class RashomonSet:
         """
         if not self._fitted:
             raise RuntimeError("Call fit() first.")
-        X = np.asarray(X, dtype=float)
+        X = self._prepare_X(np.asarray(X, dtype=float))
 
         if self.estimator == "logistic":
             warnings.warn(
@@ -2617,46 +2630,54 @@ class RashomonSet:
         """
         if not self._fitted:
             raise RuntimeError("Call fit() first.")
-        X = np.asarray(X, dtype=float)
+        X_raw = np.asarray(X, dtype=float)
         y = np.asarray(y, dtype=float)
-        n, d = X.shape
+        n = X_raw.shape[0]
+        d = self._d_original if self.fit_intercept else self._d
 
         seed = self._seed if random_state is None else int(random_state)
         rng = np.random.default_rng(seed)
         alpha = 1.0 - confidence
 
         # --- Bootstrap resampling ---
+        # Bootstrap fits on raw (unaugmented) data to match the original fit
+        X_boot_source = self._prepare_X(X_raw) if self.fit_intercept else X_raw
         boot_coefs = np.zeros((n_bootstrap, d), dtype=float)
         for b in range(n_bootstrap):
             idx = rng.choice(n, size=n, replace=True)
-            X_b, y_b = X[idx], y[idx]
+            X_b, y_b = X_boot_source[idx], y[idx]
 
             # Fit the same model type on the bootstrap sample
             if self.estimator == "logistic":
                 if _HAS_SK:
                     lam = self._lambda
-                    C_val = 1.0 / (n * lam) if lam > 0 else 1e6
+                    n_b = X_b.shape[0]
+                    C_val = 1.0 / (n_b * lam) if lam > 0 else 1e6
                     model = LogisticRegression(
                         C=C_val, fit_intercept=False,
                         solver="lbfgs", l1_ratio=0, max_iter=1000
                     )
                     try:
                         model.fit(X_b, y_b)
-                        boot_coefs[b] = model.coef_.ravel()
+                        coef = model.coef_.ravel()
+                        boot_coefs[b] = coef[1:] if self.fit_intercept else coef
                     except Exception:
-                        boot_coefs[b] = self._theta_hat
+                        boot_coefs[b] = self.coef_
                 else:
-                    boot_coefs[b] = self._theta_hat
+                    boot_coefs[b] = self.coef_
             else:
                 lam = self._lambda
                 if _HAS_SK:
-                    model = Ridge(alpha=n * lam, fit_intercept=False)
+                    n_b = X_b.shape[0]
+                    model = Ridge(alpha=n_b * lam, fit_intercept=False)
                     model.fit(X_b, y_b)
-                    boot_coefs[b] = model.coef_.ravel()
+                    coef = model.coef_.ravel()
+                    boot_coefs[b] = coef[1:] if self.fit_intercept else coef
                 else:
-                    A = (X_b.T @ X_b) / n + lam * np.eye(d)
+                    A = (X_b.T @ X_b) / n + lam * np.eye(X_b.shape[1])
                     bvec = (X_b.T @ y_b) / n
-                    boot_coefs[b] = np.linalg.solve(A, bvec)
+                    coef = np.linalg.solve(A, bvec)
+                    boot_coefs[b] = coef[1:] if self.fit_intercept else coef
 
         boot_mean = np.mean(boot_coefs, axis=0)
         boot_std = np.std(boot_coefs, axis=0)
@@ -2676,8 +2697,11 @@ class RashomonSet:
         )
 
         vic_samples = vic["samples"]
-        vic_mean = vic["mean"]
-        vic_std = vic["std"]
+        # Slice out the intercept column for comparison with bootstrap
+        if self.fit_intercept:
+            vic_samples = vic_samples[:, 1:]
+        vic_mean = np.mean(vic_samples, axis=0)
+        vic_std = np.std(vic_samples, axis=0)
         q_lo = alpha / 2
         q_hi = 1 - alpha / 2
         vic_intervals = np.stack([

@@ -121,7 +121,7 @@ def test_wine_classification():
 
 
 def test_california_housing_regression():
-    """Test on synthetic regression data (like California Housing)."""
+    """Test on synthetic regression data with multicollinear features."""
     print_section("3. Synthetic Regression (Multicollinear Features)")
 
     # Create synthetic data instead of downloading
@@ -356,7 +356,7 @@ def main():
     tests = [
         ("Iris Classification", test_iris_multiclass_ovr),
         ("Wine Classification", test_wine_classification),
-        ("California Housing", test_california_housing_regression),
+        ("Synthetic Regression", test_california_housing_regression),
         ("sklearn Comparison", test_sklearn_comparison),
         ("Edge Cases", test_edge_cases),
         ("Sampling Convergence", test_sampling_convergence),
