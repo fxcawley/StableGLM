@@ -3,6 +3,8 @@
 from typing import Any, Optional, Dict, Tuple, List
 import numpy as np
 
+__all__ = ["plot_vic", "plot_ambiguity", "plot_discrepancy"]
+
 try:
     import matplotlib.pyplot as plt
     from matplotlib.figure import Figure

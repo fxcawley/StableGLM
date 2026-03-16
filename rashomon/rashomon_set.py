@@ -1642,9 +1642,14 @@ class RashomonSet:
 
         return plot_discrepancy(disc_matrix, figsize=figsize)
 
-    # ------------------------------ Placeholders ----------------------------
+    # ------------------------------ Deprecated -------------------------------
     def variable_importance(self, mode: str = "VIC") -> Any:
-        """Legacy method - use variable_importance_cloud() instead."""
+        """Deprecated: use variable_importance_cloud() instead."""
+        warnings.warn(
+            "variable_importance() is deprecated; use variable_importance_cloud()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if mode.upper() == "VIC":
             return self.variable_importance_cloud()
         raise NotImplementedError(f"Mode '{mode}' not implemented")
