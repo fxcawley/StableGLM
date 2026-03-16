@@ -1,6 +1,6 @@
 # Reproducibility Guide
 
-This document specifies the environment, seeding, commands, and artifact policy to reproduce results and figures for StableGLM.
+This document specifies the environment, seeding, commands, and artifact policy to reproduce results and figures for rashomon-py.
 
 ## Environment
 
@@ -87,7 +87,7 @@ git init
 git add .
 git commit -m "chore: init reproducibility docs and project plan"
 # add remote (replace URL)
-git remote add origin https://github.com/ORG/StableGLM.git
+git remote add origin https://github.com/ORG/rashomon-py.git
 git branch -M main
 git push -u origin main
 ```

@@ -1,5 +1,5 @@
 """
-StableGLM / rashomon-py MVP Demo
+rashomon-py MVP Demo
 =================================
 
 Demonstrates core functionality:
@@ -16,7 +16,7 @@ from rashomon import RashomonSet
 np.random.seed(42)
 
 print("=" * 70)
-print("StableGLM MVP Demo - Rashomon Set Analysis for GLMs")
+print("rashomon-py Demo - Rashomon Set Analysis for GLMs")
 print("=" * 70)
 
 # Generate synthetic dataset

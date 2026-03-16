@@ -1,8 +1,8 @@
 # Overview
 
-## What StableGLM Does
+## What rashomon-py Does
 
-StableGLM is a stability auditing tool for L2-regularized linear and logistic
+rashomon-py is a stability auditing tool for L2-regularized linear and logistic
 regression. It characterizes the $\epsilon$-Rashomon set -- the set of all parameter
 vectors achieving loss within $\epsilon$ of the optimum -- and reports whether
 predictions, feature importances, and individual decisions are robust.

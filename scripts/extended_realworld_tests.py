@@ -350,7 +350,7 @@ def test_sampling_convergence():
 def main():
     """Run all extended real-world tests."""
     print("\n" + "=" * 80)
-    print("  StableGLM/rashomon-py: Extended Real-World Tests")
+    print("  rashomon-py: Extended Real-World Tests")
     print("=" * 80)
 
     tests = [

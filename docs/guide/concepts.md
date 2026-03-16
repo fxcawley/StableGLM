@@ -29,7 +29,7 @@ explicit: $\epsilon = \chi^2_{d,1-\alpha} / (2n)$ via Wilks' theorem.
 - **Large $\epsilon$**: permissive set, includes models with meaningfully higher loss.
   Results may overstate instability.
 
-StableGLM supports three calibration modes:
+rashomon-py supports three calibration modes:
 - `percent_loss`: $\epsilon = \rho \cdot L(\hat{\theta})$ for a user-specified $\rho$
 - `LR_alpha`: $\epsilon = \chi^2_{d,1-\alpha} / (2n)$ via Wilks' theorem
 - `LR_alpha_highdim`: high-dimensional correction (experimental)

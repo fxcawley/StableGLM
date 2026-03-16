@@ -5,8 +5,8 @@ from datetime import datetime
 # Add project root for autodoc
 sys.path.insert(0, os.path.abspath(".."))
 
-project = "StableGLM"
-author = "StableGLM Team"
+project = "rashomon-py"
+author = "rashomon-py contributors"
 year = datetime.now().year
 copyright = f"{year}, {author}"
 

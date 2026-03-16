@@ -1,4 +1,4 @@
-"""Comprehensive demonstration of StableGLM/rashomon-py on real-world data.
+"""Comprehensive demonstration of rashomon-py on real-world data.
 
 This script demonstrates the full pipeline:
 1. Data loading and preprocessing
@@ -27,7 +27,7 @@ def print_header(title):
 
 def main():
     """Run comprehensive demonstration."""
-    print_header("StableGLM/rashomon-py: Comprehensive Demonstration")
+    print_header("rashomon-py: Comprehensive Demonstration")
     print("\nThis demo showcases all key features on a real-world dataset.")
     
     # =========================================================================

@@ -1,4 +1,4 @@
-"""Real-world dataset tests for StableGLM/rashomon-py.
+"""Real-world dataset tests for rashomon-py.
 
 Tests the full pipeline on real and synthetic datasets:
 - Classification: breast cancer (real), synthetic binary
@@ -370,7 +370,7 @@ def test_high_epsilon_multiplicity():
 def main():
     """Run all real-world tests."""
     print("\n" + "=" * 80)
-    print("  StableGLM/rashomon-py: Real-World Dataset Tests")
+    print("  rashomon-py: Real-World Dataset Tests")
     print("=" * 80)
     print("\nTesting core functionality on diverse real-world datasets...")
 

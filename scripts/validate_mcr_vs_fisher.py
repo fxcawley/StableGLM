@@ -140,7 +140,7 @@ def our_mcr_on_samples(
 
 
 if __name__ == "__main__":
-    print("MCR Validation: StableGLM vs Fisher et al. Reference")
+    print("MCR Validation: rashomon-py vs Fisher et al. Reference")
     print("=" * 60)
 
     # Shared dataset: Breast Cancer with all 30 features (more rigorous than d=5)

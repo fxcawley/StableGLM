@@ -46,7 +46,7 @@ rs = RashomonSet(
 ## Part 1: Bootstrap CIs vs. Rashomon Intervals
 
 The standard next step is to assess parameter uncertainty via bootstrap resampling.
-StableGLM computes both bootstrap CIs and Rashomon set intervals in one call:
+rashomon-py computes both bootstrap CIs and Rashomon set intervals in one call:
 
 ```python
 comp = rs.compare_to_bootstrap(

@@ -5,12 +5,12 @@ build-backend = "hatchling.build"
 [project]
 name = "rashomon-py"
 version = "0.1.0"
-description = "Rashomon-GLM: ε-Rashomon sets, certificates, sampling, and set-level metrics for GLMs"
+description = "Stability auditing for GLMs — audit whether conclusions change across equally-good models"
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "MIT"}
 authors = [
-  { name = "StableGLM Team" }
+  { name = "rashomon-py contributors" }
 ]
 keywords = ["rashomon", "glm", "interpretability", "stability", "logistic regression", "sampling"]
 classifiers = [
@@ -34,8 +34,8 @@ full = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/fxcawley/StableGLM"
-Issues = "https://github.com/fxcawley/StableGLM/issues"
+Homepage = "https://github.com/fxcawley/rashomon-py"
+Issues = "https://github.com/fxcawley/rashomon-py/issues"
 
 [tool.hatch.build]
 packages = ["rashomon"]
