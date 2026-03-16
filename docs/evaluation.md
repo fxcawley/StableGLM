@@ -19,61 +19,79 @@ All datasets are real. No synthetic data.
 
 | Step | Time | Result |
 |:-----|-----:|:-------|
-| fit | 0.006s | L_hat = 0.485 |
-| ellipsoid 500 | 0.005s | |
-| hitandrun 200 | 0.99s | |
-| ambiguity (500 pts) | 0.054s | **18.4%** |
-| discrepancy | 0.059s | bound=18.4%, empirical=4.6% |
-| memory | 0.3 MB | |
+| fit | 0.012s | L_hat = 0.485 |
+| ellipsoid 500 | 0.011s | |
+| hitandrun 200 | 1.15s | |
+| ambiguity (500 pts) | 0.050s | **18.4%** |
+| discrepancy | 0.055s | bound=18.4%, empirical=4.6% |
 
-At 3% loss tolerance, **18.4% of patients** have ambiguous diagnoses -- an equally-good
-model classifies them differently.
+At 3% loss tolerance with moderate regularization, **18.4% of patients** have
+ambiguous diagnoses. The model is well-performing (L_hat=0.485, well below
+the null loss of 0.693) and this ambiguity is genuine loss-surface multiplicity.
 
-### German Credit (n=1000, d=61, C=0.1, eps=3%)
-
-| Step | Time | Result |
-|:-----|-----:|:-------|
-| fit | 0.008s | L_hat = 0.680 |
-| ellipsoid 500 | 0.009s | |
-| hitandrun 200 | 1.34s | |
-| ambiguity (500 pts) | 0.068s | **100%** |
-| discrepancy | 0.087s | bound=100%, empirical=4.8% |
-| memory | 0.8 MB | |
-
-With C=0.1 (strong regularization, $\lambda$=10), the model is heavily penalized and
-L_hat is near the null loss (0.693). The 3% Rashomon set is so large that every
-applicant's credit decision is ambiguous. This is a real finding: with this level of
-regularization on this dataset, the model does not meaningfully discriminate.
-
-### Adult Census (n=30,162, d=104, C=0.01, eps=3%)
+### German Credit (n=1000, d=61, C=1.0, eps=3%)
 
 | Step | Time | Result |
 |:-----|-----:|:-------|
-| fit | 0.101s | L_hat = 0.692 |
-| ellipsoid 500 | 0.028s | |
-| hitandrun 200 | 30.0s | |
-| ambiguity (500 pts) | 3.54s | **100%** |
-| discrepancy | 3.53s | bound=100%, empirical=56.6% |
-| memory | 25.9 MB | |
+| fit | 0.007s | L_hat = 0.628 |
+| ellipsoid 500 | 0.008s | |
+| hitandrun 200 | 3.61s | |
+| ambiguity (500 pts) | 0.161s | **85.4%** |
+| discrepancy | 0.138s | bound=85.4%, empirical=2.6% |
+
+At C=1.0, the model achieves 70.2% accuracy (above the 70.0% majority-class
+baseline) and the null model $\theta = 0$ is **excluded** from the Rashomon set.
+Yet **85.4% of credit applicants** have ambiguous decisions -- an equally-good
+model would classify them differently. German Credit is a genuinely hard dataset
+with massive predictive multiplicity at any reasonable regularization strength.
+
+**Diagnostic: C sweep.** The table below shows how ambiguity depends on
+regularization. At C=0.1 (strong regularization), L_hat approaches the null
+loss and the Rashomon set contains $\theta = 0$, making ambiguity trivially 100%.
+This is a useful diagnostic: when ambiguity = 100%, check whether the null model
+is in the Rashomon set.
+
+| C | Accuracy | L_hat | Null in set? | Ambiguity |
+|--:|---------:|------:|:------------:|----------:|
+| 0.1 | 70.0% | 0.680 | Yes | 100% |
+| 0.5 | 70.2% | 0.649 | No | 98% |
+| **1.0** | **70.2%** | **0.628** | **No** | **85.4%** |
+| 5.0 | 72.4% | 0.573 | No | 80.2% |
+
+### Adult Census (n=30,162, d=104, C=1.0, eps=3%)
+
+| Step | Time | Result |
+|:-----|-----:|:-------|
+| fit | 0.105s | L_hat = 0.607 |
+| ellipsoid 500 | 0.031s | |
+| hitandrun 200 | 39.7s | |
+| ambiguity (500 pts) | 7.04s | **63.8%** |
+| discrepancy | 7.07s | bound=63.8%, empirical=3.6% |
+
+At C=1.0, the model achieves ~78% accuracy (above the 75.1% baseline) with
+L_hat = 0.607 (well below null loss 0.693). **63.8% of income predictions**
+are ambiguous at 3% loss tolerance.
 
 ## Scaling (Adult Census, d=104)
 
 | n | fit | ellipsoid 200 | hitandrun 50 |
 |------:|------:|------:|------:|
-| 1,000 | 0.02s | 0.005s | 0.3s |
-| 5,000 | 0.04s | 0.007s | 1.3s |
-| 10,000 | 0.05s | 0.012s | 2.2s |
-| 30,162 | 0.11s | 0.027s | 6.0s |
-
-Fitting and ellipsoid sampling scale linearly with n. Hit-and-Run is the bottleneck
-at $O(nd)$ per step.
+| 1,000 | 0.01s | 0.004s | 0.3s |
+| 5,000 | 0.04s | 0.009s | 1.5s |
+| 10,000 | 0.05s | 0.011s | 2.7s |
+| 30,162 | 0.25s | 0.052s | 6.8s |
 
 ## Ellipsoid Tightness Analysis
 
-Certificate width (analytic maximum over the ellipsoid) vs. empirical width (range
-observed across 200 Hit-and-Run samples).
+Certificate width (analytic maximum over the ellipsoid) vs. empirical width
+(range observed across 200 Hit-and-Run samples).
 
-### Breast Cancer (d=30)
+**Methodology note:** Tightness ratios use in-sample points (a subset of the
+training data) to compute margin widths. This is appropriate because the ratio
+is a geometric property of the parameter-space ellipsoid projected onto data
+directions, independent of train/test splitting.
+
+### Breast Cancer (d=30, C=0.5)
 
 | $\epsilon$ | Certificate | H&R Empirical | Ratio | Fidelity |
 |:----------:|:-----------:|:-------------:|:-----:|:--------:|
@@ -84,38 +102,37 @@ observed across 200 Hit-and-Run samples).
 | 0.050 | 1.363 | 0.489 | 2.79x | 97% |
 | 0.100 | 1.928 | 0.701 | 2.75x | 96% |
 
-### German Credit (d=61)
+### German Credit (d=61, C=1.0)
 
 | $\epsilon$ | Certificate | H&R Empirical | Ratio | Fidelity |
 |:----------:|:-----------:|:-------------:|:-----:|:--------:|
-| 0.005 | 0.229 | 0.023 | 9.79x | 100% |
-| 0.010 | 0.324 | 0.039 | 8.29x | 100% |
-| 0.020 | 0.458 | 0.064 | 7.18x | 100% |
-| 0.030 | 0.561 | 0.085 | 6.57x | 100% |
-| 0.050 | 0.724 | 0.122 | 5.92x | 100% |
-| 0.100 | 1.025 | 0.199 | 5.14x | 100% |
+| 0.005 | 0.603 | 0.097 | 6.20x | 92% |
+| 0.010 | 0.853 | 0.160 | 5.32x | 92% |
+| 0.020 | 1.206 | 0.253 | 4.77x | 92% |
+| 0.030 | 1.477 | 0.324 | 4.57x | 92% |
+| 0.050 | 1.907 | 0.429 | 4.44x | 92% |
+| 0.100 | 2.697 | 0.612 | 4.41x | 92% |
 
-### Adult Census (d=104)
+### Adult Census (d=104, C=1.0)
 
 | $\epsilon$ | Certificate | H&R Empirical | Ratio | Fidelity |
 |:----------:|:-----------:|:-------------:|:-----:|:--------:|
-| 0.005 | 0.058 | 0.002 | 37.7x | 100% |
-| 0.010 | 0.082 | 0.002 | 39.4x | 100% |
-| 0.020 | 0.117 | 0.003 | 34.6x | 100% |
-| 0.030 | 0.143 | 0.005 | 30.2x | 100% |
-| 0.050 | 0.184 | 0.007 | 25.4x | 100% |
-| 0.100 | 0.260 | 0.013 | 19.8x | 100% |
+| 0.005 | 0.479 | 0.039 | 12.3x | 96% |
+| 0.010 | 0.677 | 0.069 | 9.80x | 96% |
+| 0.020 | 0.957 | 0.113 | 8.48x | 96% |
+| 0.030 | 1.173 | 0.142 | 8.28x | 96% |
+| 0.050 | 1.514 | 0.184 | 8.23x | 96% |
+| 0.100 | 2.141 | 0.260 | 8.22x | 96% |
 
 ### Tightness Summary
 
-| Dataset | d | Ratio Range | Fidelity | Practical Assessment |
-|---------|--:|:-----------:|:--------:|:---------------------|
+| Dataset | d | Ratio Range | Fidelity | Assessment |
+|---------|--:|:-----------:|:--------:|:-----------|
 | Breast Cancer | 30 | 2.8-3.7x | 96-98% | Tight. Certificates give useful bounds. |
-| German Credit | 61 | 5.1-9.8x | 100% | Moderate. Valid upper bounds. |
-| Adult Census | 104 | 19.8-37.7x | 100% | Conservative. Supplement with H&R for tighter estimates. |
+| German Credit | 61 | 4.4-6.2x | 92% | Moderate. Valid upper bounds with practical tightness. |
+| Adult Census | 104 | 8.2-12.3x | 96% | Conservative. Supplement with H&R for tighter estimates. |
 
-**100% fidelity** for German Credit and Adult confirms that every ellipsoid
-sample satisfies the true membership oracle. For Breast Cancer, 96-98%
-fidelity at the tighter epsilon values means a small fraction of ellipsoid
-samples fall slightly outside the true Rashomon set -- the quadratic
-approximation is good but not exact at d=30.
+With C=1.0 (moderate regularization), the tightness ratios improve substantially
+compared to the degenerate C=0.01 regime: Adult drops from 20-38x to 8-12x.
+This is because the Hessian is better conditioned when the model fits the data,
+making the quadratic approximation more accurate.

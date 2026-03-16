@@ -1,12 +1,12 @@
 ============================================================
 Breast Cancer: n=569, d=30
 ============================================================
-  fit:              0.006s  (L_hat=0.4850)
-  ellipsoid 500:    0.005s
-  hitandrun 200:    0.992s
-  ambiguity (500):  0.054s  rate=18.4%
-  discrepancy:      0.059s  bound=18.4%  empirical=4.6%
-  VIC (200):        0.003s
+  fit:              0.012s  (L_hat=0.4850)
+  ellipsoid 500:    0.011s
+  hitandrun 200:    1.145s
+  ambiguity (500):  0.050s  rate=18.4%
+  discrepancy:      0.055s  bound=18.4%  empirical=4.6%
+  VIC (200):        0.004s
   capacity:         0.000s  log_vol=-75.2
   est. memory:      0.3 MB
 ============================================================
@@ -21,48 +21,56 @@ ELLIPSOID TIGHTNESS: Breast Cancer (n=569, d=30)
 ============================================================
 German Credit: n=1000, d=61
 ============================================================
-  fit:              0.008s  (L_hat=0.6802)
-  ellipsoid 500:    0.009s
-  hitandrun 200:    1.339s
-  ambiguity (500):  0.068s  rate=100.0%
-  discrepancy:      0.087s  bound=100.0%  empirical=4.8%
-  VIC (200):        0.003s
-  capacity:         0.000s  log_vol=-209.5
+  fit:              0.007s  (L_hat=0.6280)
+  ellipsoid 500:    0.008s
+  hitandrun 200:    3.612s
+  ambiguity (500):  0.161s  rate=85.4%
+  discrepancy:      0.138s  bound=85.4%  empirical=2.6%
+  VIC (200):        0.005s
+  capacity:         0.000s  log_vol=-143.4
   est. memory:      0.8 MB
 ============================================================
 ELLIPSOID TIGHTNESS: German Credit (n=1000, d=61)
 ============================================================
-  eps=0.005: cert=0.2291  empirical=0.0234  ratio=9.79x  fidelity=100%
-  eps=0.010: cert=0.3240  empirical=0.0391  ratio=8.29x  fidelity=100%
-  eps=0.020: cert=0.4582  empirical=0.0638  ratio=7.18x  fidelity=100%
-  eps=0.030: cert=0.5611  empirical=0.0854  ratio=6.57x  fidelity=100%
-  eps=0.050: cert=0.7244  empirical=0.1223  ratio=5.92x  fidelity=100%
-  eps=0.100: cert=1.0245  empirical=0.1994  ratio=5.14x  fidelity=100%
+  eps=0.005: cert=0.6031  empirical=0.0973  ratio=6.20x  fidelity=92%
+  eps=0.010: cert=0.8529  empirical=0.1604  ratio=5.32x  fidelity=92%
+  eps=0.020: cert=1.2061  empirical=0.2530  ratio=4.77x  fidelity=92%
+  eps=0.030: cert=1.4772  empirical=0.3236  ratio=4.57x  fidelity=92%
+  eps=0.050: cert=1.9070  empirical=0.4292  ratio=4.44x  fidelity=92%
+  eps=0.100: cert=2.6970  empirical=0.6117  ratio=4.41x  fidelity=92%
+============================================================
+GERMAN CREDIT: C SWEEP (eps=3%)
+============================================================
+  Null loss (theta=0): 0.6931
+  C=0.1   acc=70.0%  L_hat=0.6802  null_in_set=True  ambiguity=100.0%
+  C=0.5   acc=70.2%  L_hat=0.6488  null_in_set=False  ambiguity=98.0%
+  C=1.0   acc=70.2%  L_hat=0.6280  null_in_set=False  ambiguity=85.4%
+  C=5.0   acc=72.4%  L_hat=0.5729  null_in_set=False  ambiguity=80.2%
 ============================================================
 Adult Census: n=30162, d=104
 ============================================================
-  fit:              0.101s  (L_hat=0.6917)
-  ellipsoid 500:    0.028s
-  hitandrun 200:    30.028s
-  ambiguity (500):  3.542s  rate=100.0%
-  discrepancy:      3.529s  bound=100.0%  empirical=56.6%
-  VIC (200):        0.007s
-  capacity:         0.001s  log_vol=-501.8
+  fit:              0.105s  (L_hat=0.6065)
+  ellipsoid 500:    0.031s
+  hitandrun 200:    39.675s
+  ambiguity (500):  7.037s  rate=63.8%
+  discrepancy:      7.068s  bound=63.8%  empirical=3.6%
+  VIC (200):        0.005s
+  capacity:         0.001s  log_vol=-270.6
   est. memory:      25.9 MB
 ============================================================
 ELLIPSOID TIGHTNESS: Adult Census (n=30162, d=104)
 ============================================================
-  eps=0.005: cert=0.0582  empirical=0.0015  ratio=37.65x  fidelity=100%
-  eps=0.010: cert=0.0824  empirical=0.0021  ratio=39.42x  fidelity=100%
-  eps=0.020: cert=0.1165  empirical=0.0034  ratio=34.59x  fidelity=100%
-  eps=0.030: cert=0.1426  empirical=0.0047  ratio=30.22x  fidelity=100%
-  eps=0.050: cert=0.1841  empirical=0.0073  ratio=25.39x  fidelity=100%
-  eps=0.100: cert=0.2604  empirical=0.0132  ratio=19.77x  fidelity=100%
+  eps=0.005: cert=0.4787  empirical=0.0388  ratio=12.34x  fidelity=96%
+  eps=0.010: cert=0.6769  empirical=0.0691  ratio=9.80x  fidelity=96%
+  eps=0.020: cert=0.9573  empirical=0.1128  ratio=8.48x  fidelity=96%
+  eps=0.030: cert=1.1725  empirical=0.1416  ratio=8.28x  fidelity=96%
+  eps=0.050: cert=1.5137  empirical=0.1839  ratio=8.23x  fidelity=96%
+  eps=0.100: cert=2.1407  empirical=0.2603  ratio=8.22x  fidelity=96%
 ============================================================
 SCALING (Adult Census, d=104)
 ============================================================
-  n=  1000: fit=0.017s  ell200=0.005s  hr50=0.325s
-  n=  5000: fit=0.042s  ell200=0.007s  hr50=1.261s
-  n= 10000: fit=0.052s  ell200=0.012s  hr50=2.209s
-  n= 30162: fit=0.108s  ell200=0.027s  hr50=6.022s
+  n=  1000: fit=0.014s  ell200=0.004s  hr50=0.286s
+  n=  5000: fit=0.037s  ell200=0.009s  hr50=1.544s
+  n= 10000: fit=0.048s  ell200=0.011s  hr50=2.698s
+  n= 30162: fit=0.249s  ell200=0.052s  hr50=6.811s
 Done.

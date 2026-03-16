@@ -181,15 +181,33 @@ if __name__ == "__main__":
 
     # --- German Credit (medium, mid-d) ---
     X_gc, y_gc = load_german_credit()
-    run_full_pipeline("German Credit", X_gc, y_gc, C=0.1)
-    run_tightness("German Credit", X_gc, y_gc, C=0.1)
+    run_full_pipeline("German Credit", X_gc, y_gc, C=1.0)
+    run_tightness("German Credit", X_gc, y_gc, C=1.0)
+
+    # German Credit diagnostic: C sweep showing degenerate regime
+    print(f"\n{'='*60}")
+    print("GERMAN CREDIT: C SWEEP (eps=3%)")
+    print(f"{'='*60}")
+    null_loss = float(np.mean(np.logaddexp(0.0, np.zeros(len(y_gc))) - y_gc * 0.0))
+    print(f"  Null loss (theta=0): {null_loss:.4f}")
+    for C_val in [0.1, 0.5, 1.0, 5.0]:
+        rs_sweep = RashomonSet(
+            estimator="logistic", C=C_val, epsilon=0.03,
+            epsilon_mode="percent_loss", random_state=42,
+            safety_override=True,
+        ).fit(X_gc, y_gc)
+        acc = rs_sweep.score(X_gc, y_gc)
+        amb = rs_sweep.ambiguity(X_gc[:500], threshold_mode="fixed", threshold_value=0.5)
+        null_in = rs_sweep._oracle.contains(np.zeros(X_gc.shape[1]))
+        print(f"  C={C_val:<4}  acc={acc:.1%}  L_hat={rs_sweep._L_hat:.4f}  "
+              f"null_in_set={null_in}  ambiguity={amb['ambiguity_rate']:.1%}")
 
     # --- Adult Census (large, high-d) ---
     adult_path = os.path.join(DATA_DIR, "adult.data")
     if os.path.exists(adult_path):
         X_ad, y_ad = load_adult(adult_path)
-        run_full_pipeline("Adult Census", X_ad, y_ad, C=0.01)
-        run_tightness("Adult Census", X_ad, y_ad, C=0.01)
+        run_full_pipeline("Adult Census", X_ad, y_ad, C=1.0)
+        run_tightness("Adult Census", X_ad, y_ad, C=1.0)
 
         # Scaling comparison
         print(f"\n{'='*60}")
@@ -198,7 +216,7 @@ if __name__ == "__main__":
         for n_sub in [1000, 5000, 10000, len(X_ad)]:
             Xs, ys = X_ad[:n_sub], y_ad[:n_sub]
             t0 = time.perf_counter()
-            rs = RashomonSet(estimator="logistic", C=0.01, epsilon=0.03,
+            rs = RashomonSet(estimator="logistic", C=1.0, epsilon=0.03,
                              epsilon_mode="percent_loss", random_state=42,
                              safety_override=True).fit(Xs, ys)
             tf = time.perf_counter() - t0
