@@ -12,12 +12,29 @@ robust to the choice of model within that set.
 
 ```{toctree}
 :maxdepth: 2
-:caption: Contents
+:caption: Getting Started
 
-guide/concepts
 guide/quickstart
+guide/when_to_use
+guide/choosing_epsilon
+```
+
+```{toctree}
+:maxdepth: 2
+:caption: User Guide
+
+guide/certificates_vs_sampling
+guide/interpreting_instability
+guide/why_not_bootstrap
 examples/tutorial
+```
+
+```{toctree}
+:maxdepth: 2
+:caption: Reference
+
 evaluation
+guide/concepts
 guide/overview
 api/reference
 reproducibility

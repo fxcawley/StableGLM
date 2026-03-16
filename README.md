@@ -103,9 +103,13 @@ Out of scope:
 ## Documentation
 
 - [Quickstart](docs/guide/quickstart.md) -- Get running in 20 lines
+- [When to use this](docs/guide/when_to_use.md) -- And when not to
+- [Choosing epsilon](docs/guide/choosing_epsilon.md) -- The fundamental parameter
+- [Certificates vs sampling](docs/guide/certificates_vs_sampling.md) -- Which mode to use
+- [Interpreting instability](docs/guide/interpreting_instability.md) -- What the outputs mean in practice
+- [Why not bootstrap?](docs/guide/why_not_bootstrap.md) -- What Rashomon adds beyond CIs
 - [Tutorial](docs/examples/tutorial.md) -- Full case study: "When Equally-Good Models Disagree"
-- [Concepts](docs/guide/concepts.md) -- Rashomon sets, predictive multiplicity, three kinds of uncertainty
-- [Evaluation](docs/evaluation.md) -- Scaling, tightness, certificate calibration on 4 real datasets
+- [Evaluation](docs/evaluation.md) -- Benchmark results on 4 real datasets
 - [API Reference](docs/api/reference.rst) -- Complete API docs
 
 ## Key references
