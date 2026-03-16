@@ -179,27 +179,26 @@ class RashomonSet:
 
     This class provides a unified interface to:
 
-    1.  **Define** the Rashomon set using the likelihood ratio or loss approximations.
-    2.  **Sample** from the set using efficient MCMC methods (Ellipsoid, Hit-and-Run).
-    3.  **Analyze** the set using diagnostics like Variable Importance Clouds (VIC),
-        Model Class Reliance (MCR), and Predictive Multiplicity metrics (Ambiguity, Discrepancy).
+    1.  **Define** the Rashomon set via loss-level-set or likelihood ratio calibration.
+    2.  **Sample** from the set using ellipsoidal approximation (fast) or Hit-and-Run MCMC (exact).
+    3.  **Audit** stability using coefficient distributions, Model Class Reliance
+        (Fisher, Rudin, Dominici 2019), and predictive multiplicity metrics
+        (ambiguity/discrepancy per Marx, Calmon, Ustun 2020).
 
-    **Key Contributions:**
-
-    -   **Efficient Sampling**: Implements geometry-aware sampling (Hessian-based) to explore the
-        Rashomon set efficiently, even in moderate dimensions.
-    -   **Predictive Multiplicity**: Quantifies how much predictions vary across the set of "good" models.
-    -   **Variable Importance Stability**: visualizing the "cloud" of possible coefficients (VIC) rather
-        than just a point estimate.
+    The coefficient distribution (``variable_importance_cloud``) shows the spread of
+    each parameter across the Rashomon set. This is inspired by the Variable Importance
+    Cloud concept of Dong & Rudin (2020) but adapted to the GLM setting where raw
+    coefficients serve as the natural importance measure (rather than the SHAP-based
+    importance used in Dong & Rudin's tree-model formulation).
 
     **When to use this:**
 
-    -   **High-Stakes Decisions**: When model decisions affect people (e.g., credit, medical), checking
-        multiplicity is crucial for robustness and fairness.
-    -   **Feature Selection**: To identify features that are consistently important versus those that
-        can be swapped out without performance loss.
-    -   **Robustness Checks**: To ensure your conclusions aren't artifacts of a specific random seed
-        or slight data perturbation.
+    -   **Regulatory audits**: When you must demonstrate that model conclusions are
+        robust to the choice of near-optimal model, not just to sampling noise.
+    -   **Feature stability**: To identify features whose importance is an artifact of
+        the optimizer's particular solution versus a robust property of the data.
+    -   **Prediction robustness**: To flag individuals whose predictions depend on
+        which equally-good model happens to be selected.
 
     Parameters
     ----------
@@ -1379,7 +1378,7 @@ class RashomonSet:
             "ess_per_param": ess_per_param,
         }
 
-    # ----------------------------- VIC (E20) --------------------------------
+    # ----------------------------- Coefficient stability ---------------------
     def variable_importance_cloud(
         self,
         *,
@@ -1390,10 +1389,19 @@ class RashomonSet:
         thin: int = 2,
         random_state: Optional[int] = None,
     ) -> Dict[str, Array]:
-        """Compute Variable Importance Cloud (VIC) for coefficients.
-        
-        VIC characterizes the distribution of coefficients across the Rashomon
-        set, providing insight into feature importance uncertainty.
+        """Coefficient distribution across the Rashomon set.
+
+        Samples parameter vectors from the Rashomon set and computes the
+        distribution of each coefficient, showing which features have stable
+        vs. unstable weightings across near-optimal models.
+
+        Inspired by the Variable Importance Cloud concept of Dong & Rudin
+        (2020, Nature Machine Intelligence), adapted to the GLM setting
+        where raw coefficients serve as the importance measure. Note that
+        Dong & Rudin's original VIC uses SHAP-based importance over tree
+        models; this method uses raw coefficients, which is the natural
+        analog for linear models but only an approximation of importance
+        for logistic regression (coefficients are in log-odds space).
         
         Parameters
         ----------
@@ -1480,7 +1488,7 @@ class RashomonSet:
         show_theta_hat: bool = True,
         **kwargs: Any,
     ) -> Any:
-        """Plot Variable Importance Cloud (coefficient distributions).
+        """Plot coefficient distributions across the Rashomon set.
 
         Parameters
         ----------
@@ -2242,7 +2250,8 @@ class RashomonSet:
 
         References
         ----------
-        Fisher, Rudin, Dominici (2019). "All Models are Wrong, but Many are Useful."
+        Marx, Calmon, Ustun (2020). "Predictive Multiplicity in Classification."
+        ICML 2020.
 
         Examples
         --------

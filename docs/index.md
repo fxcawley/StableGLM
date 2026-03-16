@@ -1,17 +1,14 @@
 # StableGLM
 
-Your model is accurate. But is it the *only* accurate model, or one of thousands?
+Stability auditing for GLMs in high-stakes sklearn workflows.
 
-StableGLM explores the set of all models that perform nearly as well as your best fit.
-When that set is large and diverse, conclusions drawn from any single model --
-feature importances, individual predictions, fairness metrics -- may be artifacts
-of an arbitrary optimization path rather than properties of the data.
+Answers the question: *"Would my conclusions change if I used a different
+equally-good model?"* -- in two lines of code.
 
-**What this reveals:**
-
-- Patients whose diagnosis flips depending on which equally-good model you pick
-- Features that appear important in one good model and irrelevant in another
-- How much wider the space of near-optimal models is than bootstrap CIs suggest
+StableGLM characterizes the set of all L2-regularized linear and logistic
+regression models that perform within $\epsilon$ of the optimum, then audits
+whether predictions, feature importances, and individual decisions are
+robust to the choice of model within that set.
 
 ```{toctree}
 :maxdepth: 2

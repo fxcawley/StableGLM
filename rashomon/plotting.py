@@ -1,4 +1,4 @@
-"""Visualization utilities for Rashomon sets (G32)."""
+"""Visualization utilities for Rashomon set stability analysis."""
 
 from typing import Any, Optional, Dict, Tuple, List
 import numpy as np
@@ -18,7 +18,7 @@ def plot_vic(
     theta_hat: Optional[np.ndarray] = None,
     figsize: Optional[Tuple[float, float]] = None,
 ) -> Tuple[Figure, Axes]:
-    """Plot Variable Importance Cloud (coefficient distributions).
+    """Plot coefficient distributions across the Rashomon set.
     
     Parameters
     ----------
