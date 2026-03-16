@@ -4,7 +4,7 @@ orphan: true
 
 # Project Plan
 
-See the repository root `PROJECT_PLAN.md` for the canonical plan. This page mirrors key sections.
+See `devnotes/PROJECT_PLAN.md` for the canonical plan.
 
-```{include} ../PROJECT_PLAN.md
+```{include} ../devnotes/PROJECT_PLAN.md
 ```
