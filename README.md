@@ -18,9 +18,14 @@ epsilon-Rashomon set) and measuring what changes across it.
 
 ## Install
 
+Requires Python 3.9+.
+
 ```bash
-pip install -e .
+pip install -e .          # from a local clone
 ```
+
+Dependencies: numpy, scipy, scikit-learn, matplotlib. Optional: seaborn, tqdm
+(`pip install -e ".[full]"`).
 
 ## Quickstart
 
