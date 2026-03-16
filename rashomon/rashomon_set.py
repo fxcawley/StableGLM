@@ -180,7 +180,7 @@ class RashomonSet:
     This class provides a unified interface to:
 
     1.  **Define** the Rashomon set via loss-level-set or likelihood ratio calibration.
-    2.  **Sample** from the set using ellipsoidal approximation (fast) or Hit-and-Run MCMC (exact).
+    2.  **Sample** from the set using ellipsoidal approximation (fast) or Hit-and-Run MCMC (asymptotically exact).
     3.  **Audit** stability using coefficient distributions, Model Class Reliance
         (Fisher, Rudin, Dominici 2019), and predictive multiplicity metrics
         (ambiguity/discrepancy per Marx, Calmon, Ustun 2020).

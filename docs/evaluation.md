@@ -17,7 +17,7 @@ All datasets are real. No synthetic data.
 ## Summary
 
 For each dataset, C is selected by 5-fold cross-validation. Both certificate-based
-(ellipsoidal, fast) and empirical (Hit-and-Run, exact) ambiguity are reported.
+(ellipsoidal, fast) and empirical (Hit-and-Run, asymptotically exact) ambiguity are reported.
 
 | Dataset | d | C (CV) | Acc | Cert. Amb. | Emp. Amb. | Cert/Emp | Min ESS |
 |:--------|--:|-------:|----:|-----------:|----------:|---------:|--------:|

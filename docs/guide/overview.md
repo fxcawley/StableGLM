@@ -15,7 +15,7 @@ predictions, feature importances, and individual decisions are robust.
 
 **Sampling** (exact, slower):
 - **Ellipsoid sampling**: fast but approximate (quadratic approximation of the loss)
-- **Hit-and-Run**: exact membership sampling from the true Rashomon set via MCMC
+- **Hit-and-Run**: asymptotically exact membership sampling from the true Rashomon set via MCMC
 
 **Analysis**:
 - **Coefficient distributions**: spread of each parameter across the Rashomon set

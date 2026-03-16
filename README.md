@@ -58,8 +58,9 @@ Two computation modes:
 
 - **Certificates** (ellipsoidal, closed-form) -- fast upper bounds, milliseconds.
   Tight at low dimensionality (within 1.3x at d=10).
-- **Exact sampling** (Hit-and-Run MCMC) -- slower, provably correct membership
-  sampling from the true Rashomon set.
+- **Hit-and-Run MCMC** -- slower, asymptotically exact membership sampling from
+  the true Rashomon set. Requires adequate chain length for mixing (see
+  limitations).
 
 ## Benchmark summary
 
@@ -88,11 +89,16 @@ conservative upper bounds -- use Hit-and-Run for precise estimates.
   tolerance. The `epsilon_mode="percent_loss"` default is a reasonable starting point
   but users should run sensitivity analysis (the tutorial shows how).
 
-## What this is not
+## Scope
 
-- Not a fairness toolkit.
-- Not a general Rashomon framework for arbitrary model classes.
-- Not a model selection tool -- it audits a model you already trained.
+rashomon-py supports **L2-regularized logistic and linear regression only**.
+This is a deliberate constraint, not a roadmap gap.
+
+Out of scope:
+- Tree models, neural nets, or arbitrary sklearn estimators
+- L1, elastic-net, or other penalty types
+- Fairness guarantees or bias auditing
+- Model selection (this tool audits a model you already trained)
 
 ## Documentation
 
