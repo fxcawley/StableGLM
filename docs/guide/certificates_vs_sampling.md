@@ -1,84 +1,50 @@
-# Certificates vs Sampling
+# Certificates and sampling
 
-rashomon-py provides two computation modes. They answer the same questions but
-trade off speed against precision.
+The toolkit provides two computation modes for exploring the Rashomon set. They differ in speed and precision, and the tradeoff between them depends on the dimensionality of the problem.
 
-## Certificates (ellipsoidal approximation)
+## Ellipsoidal certificates
 
-Certificates approximate the Rashomon set as an ellipsoid derived from the
-Hessian at the optimum. This gives closed-form bounds on:
+Near the optimum, a second-order Taylor expansion of the loss gives an ellipsoidal approximation to the true Rashomon set:
 
-- Coefficient intervals (per-feature parameter ranges)
-- Probability bands (per-instance prediction ranges)
-- Ambiguity (fraction of instances with unstable predictions)
+$$\mathcal{E}_\varepsilon = \bigl\{\hat\theta + \Delta : \Delta^\top H \Delta \leq 2\varepsilon\bigr\}$$
 
-**Speed:** milliseconds, regardless of dimensionality.
+where $H = \nabla^2 L(\hat\theta)$ is the Hessian at the optimum. For any linear functional $s^\top\theta$ (a single coefficient, a linear combination corresponding to a prediction at a particular point), the extrema over $\mathcal{E}_\varepsilon$ have closed forms involving $\lVert s \rVert_{H^{-1}}$. This makes coefficient intervals, prediction bands, and ambiguity bounds available in milliseconds regardless of dimensionality.
 
-**Accuracy:** upper bounds. Always valid, but may overestimate instability.
-Tightness depends on dimensionality.
+The certificates are valid upper bounds at any $d$, because the ellipsoid is an outer approximation of the true (non-ellipsoidal) sublevel set. The question is how conservative this approximation is. The tightness ratio (certificate interval width divided by empirical width from hit-and-run sampling) varies with dimensionality in a consistent pattern:
 
-## Hit-and-Run MCMC
+| Dataset | $d$ | Tightness ratio | Assessment |
+|:--------|----:|:---------------:|:-----------|
+| Breast Cancer PCA-10 | 10 | 1.3--1.6x | Tight. Certificates are nearly exact. |
+| Breast Cancer Full | 30 | 2.8--3.7x | Reasonably tight. Useful for screening. |
+| German Credit | 61 | 4.4--6.2x | Moderate. Valid bounds, not tight. |
+| Adult Census | 104 | 8.2--12.3x | Conservative. Sampling needed for precision. |
 
-Hit-and-Run samples parameter vectors from the true Rashomon set (the actual
-sublevel set of the loss, not the ellipsoidal approximation). This gives:
+This is expected. The ellipsoidal approximation becomes less accurate as the loss surface deviates from quadratic further from the optimum, and higher-dimensional sets have more room for the true sublevel set to differ from the ellipsoidal shape.
 
-- Empirical coefficient distributions (VIC)
-- Empirical ambiguity and discrepancy estimates
-- Samples you can inspect directly
+## Hit-and-run sampling
 
-**Speed:** seconds to minutes, depending on dimensionality and chain length.
+For computations over the true (non-ellipsoidal) Rashomon set, the toolkit uses hit-and-run sampling with a membership oracle. Hit-and-run is a Markov chain method that generates approximately uniform samples from a convex body by repeatedly choosing a random direction, computing the chord of the body along that direction, and sampling uniformly on the chord (Lovász & Vempala, 2006).
 
-**Accuracy:** asymptotically exact, given adequate mixing. Check effective sample
-size (ESS) to verify convergence.
+The samples are used to compute empirical coefficient distributions (VIC), empirical ambiguity and discrepancy, and other quantities that depend on the actual shape of the Rashomon set rather than its ellipsoidal approximation.
 
-## Decision rule
-
-| Dimensionality | Cert/Exact ratio | Recommendation |
-|:---------------|:----------------:|:---------------|
-| d < 20 | 1.3-1.6x | Certificates are sufficient for most purposes. |
-| 20 < d < 60 | 2-8x | Certificates for fast screening; Hit-and-Run for precision. |
-| d > 60 | 8-20x | Hit-and-Run necessary for credible estimates. Expect slow mixing. |
-
-**Always run certificates first.** They cost nothing and give immediate bounds.
-
-- If certificate ambiguity is 0%, you are done. The model is stable at this epsilon.
-- If certificate ambiguity is > 0% and you need a precise number, run Hit-and-Run.
-- If d > 60 and you need precision, allocate long chains (1000+ samples) and check ESS.
-
-## Checking mixing quality
-
-After Hit-and-Run sampling, check convergence:
+The sampling is asymptotically exact given adequate mixing, but mixing quality depends on the condition number and dimensionality. The effective sample size (ESS) is the relevant diagnostic:
 
 ```python
-rs = RashomonSet(estimator="logistic", epsilon=0.03,
-                 epsilon_mode="percent_loss", sampler="hitandrun",
-                 random_state=0).fit(X, y)
 samples = rs.sample_hitandrun(n_samples=1000, random_state=0)
 diag = rs.compute_sample_diagnostics(samples)
 print(f"Min ESS: {diag['ess_min']:.0f}")
 ```
 
-**ESS > 100:** adequate for ambiguity/VIC estimates.
-**ESS 10-100:** interpret with caution; consider longer chains.
-**ESS < 10:** chain has not converged. Results are unreliable. Increase `n_samples`
-or reduce dimensionality.
+At $d = 10$ with 1000 samples, ESS is typically above 200, which is adequate. At $d = 104$ with 500 samples, ESS drops to 3, which means the chain has not converged and the empirical estimates are unreliable. In the intermediate range, ESS between 50 and 200 is generally sufficient for ambiguity and VIC estimates, though not for tail quantities.
 
-## Practical example
+## Practical guidance
 
-```python
-# Fast screening with certificates
-cert_amb = rs.ambiguity(X)  # uses ellipsoidal bounds internally
-print(f"Certificate ambiguity: {cert_amb['ambiguity_rate']:.1%}")
+For $d \leq 30$ or so, the ellipsoidal certificates are sufficient for most purposes. They are fast, deterministic, and the tightness ratio is small enough that the bounds are informative. If the certificate ambiguity is zero, the model is stable at this $\varepsilon$ and there is no need to sample.
 
-# If you need precision, sample
-samples = rs.sample_hitandrun(n_samples=500, random_state=42)
-vic = rs.variable_importance_cloud(n_samples=500, random_state=42)
-```
+For $d > 60$, the certificates are conservative enough that their value as point estimates is limited, though they remain valid as upper bounds. Hit-and-run sampling is necessary for credible empirical estimates, but long chains (1000+ samples) are needed for adequate ESS, and the computational cost grows accordingly.
 
-At d=10 on Breast Cancer, certificate says 36% ambiguity; Hit-and-Run
-confirms 27%. The 1.3x ratio means the certificate is a useful fast screen
-that slightly overstates the problem.
+The intermediate range ($30 < d < 60$) requires judgment. Running certificates first is always worthwhile because they are free. If the certificate ambiguity is substantially above zero and the application requires precise numbers, supplementing with sampling is advisable.
 
-At d=104 on Adult Census, certificate says 79%; Hit-and-Run finds 9.2%.
-The 8.6x ratio means you should not trust the certificate as a point estimate,
-only as a conservative upper bound.
+## References
+
+- Lovász, L. & Vempala, S. (2006). Hit-and-run from a corner. *SIAM Journal on Computing*, 35(4), 985--1005.

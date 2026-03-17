@@ -1,84 +1,40 @@
-# How to Interpret Instability
+# Interpreting instability
 
-## Ambiguity rate
+## Ambiguity
 
-"X% of instances are ambiguous" means X% of predictions would change if you
-used a different equally-good model. This is not noise or estimation error.
-It means the data genuinely admits multiple valid answers for those instances.
+Ambiguity is the fraction of instances whose predicted label changes across the Rashomon set (Marx, Calmon, & Ustun, 2020). An instance is ambiguous if its margin interval $[m_i^{\min}, m_i^{\max}]$ straddles the decision threshold, meaning that there exist near-optimal models on both sides of the classification boundary for that instance. The prediction for such an instance is a property of the optimization trajectory, not of the data.
 
-An ambiguous patient is one whose prediction is not a property of the data
-alone, but of which particular near-optimal model the practitioner happened
-to fit.
+High ambiguity does not indicate a bad model. On the Breast Cancer dataset at 3% loss tolerance, the model achieves 94% accuracy while 23% of patients have ambiguous diagnoses. The two measures capture different things: accuracy reflects average predictive performance, while ambiguity identifies specific instances for which that performance is not uniquely determined.
 
-## When ambiguity is high (> 20%)
+The practical response to high ambiguity depends on the application. In clinical settings, ambiguous instances are patients whose diagnosis depends on which near-optimal model the clinician's software happened to fit. Flagging these cases for additional review or reporting prediction intervals rather than point predictions are natural responses. Switching to a different model class is generally not indicated, because if the instability is in the data (correlated features, overlapping class boundaries), a different algorithm will face the same fundamental multiplicity.
 
-High ambiguity does not mean the model is bad. Accuracy can be high and
-ambiguity can still be high -- they measure different things.
+Zero ambiguity at a given $\varepsilon$ means that every instance receives the same predicted label under every near-optimal model. This is an informative positive finding, though it is worth testing a larger $\varepsilon$ to identify the tolerance at which instability appears (see {doc}`choosing_epsilon`).
 
-**What to do:**
+## Coefficient distributions
 
-- Flag ambiguous instances for human review or additional data collection.
-- Report prediction intervals rather than point predictions for affected
-  instances.
-- Consider whether the task is well-defined enough. If 30% of patients
-  get different diagnoses across equally-good models, the data may not
-  support confident individual predictions.
-- Do NOT switch model classes on this basis alone. Ambiguity is a property
-  of the data and the loss tolerance, not a deficiency of the algorithm.
+The coefficient distributions (VIC) show the range of each parameter $\theta_j$ across the Rashomon set. A feature with a wide distribution is one where many different weightings are compatible with near-optimal loss. This is common when features are correlated: the optimizer's particular decomposition of prediction into coefficient weights is one of many valid solutions, and the data does not constrain the decomposition.
 
-## When ambiguity is zero
+A coefficient distribution that crosses zero is notable: it means that some near-optimal models assign the feature a positive effect and others a negative one. The sign of the feature's contribution is not determined by the data at this loss tolerance. Dong & Rudin (2020) introduced the Variable Importance Cloud to visualize this phenomenon for tree models; the adaptation here uses raw coefficients in the GLM setting, where they serve as the natural importance measure.
 
-Conclusions are robust at this epsilon. Every instance gets the same
-prediction under every near-optimal model.
+A narrow coefficient distribution, conversely, indicates that the feature's role is tightly constrained across the Rashomon set. Its importance is a robust property of the data, not an artifact of the fit.
 
-**What to do:**
+## Model Class Reliance
 
-- Report this as a positive finding: the model's conclusions are stable.
-- Consider testing a larger epsilon to find the threshold where instability
-  appears. The sensitivity curve (see {doc}`choosing_epsilon`) is more
-  informative than any single number.
+MCR reports the min and max permutation-based importance of each feature across the Rashomon set (Fisher, Rudin, & Dominici, 2019). If $\text{MCR}^- < 0$, there exists a near-optimal model under which the feature is actively harmful by the permutation metric: removing it improves predictive accuracy. If $\text{MCR}^- > 0$, the feature is indispensable across all near-optimal models.
 
-## Coefficient spread (VIC)
-
-**Wide distribution:** the feature's importance is not determined by the data.
-Many different weightings are compatible with near-optimal loss. This often
-happens with correlated features where the optimizer's particular decomposition
-into coefficient weights is one of many valid solutions.
-
-**Interval crossing zero:** some near-optimal models assign the feature
-a positive coefficient and others assign it a negative one. The sign of the
-feature's effect is not robust.
-
-**Narrow distribution:** the feature's coefficient is tightly constrained
-across the Rashomon set. Its role in the model is a robust property of the
-data, not an artifact of the fit.
+On the Breast Cancer tutorial case, every feature has $\text{MCR}^- < 0$. No feature is indispensable. This does not mean that the features are useless; the $\text{MCR}^+$ values are positive for most features, indicating that each feature can contribute under some near-optimal model. It means that any single feature importance ranking is an artifact of the particular optimum.
 
 ## Discrepancy
 
-Discrepancy measures the worst-case pairwise disagreement rate between any
-two models in the Rashomon set. If discrepancy is 8%, there exist two
-models -- both achieving near-optimal loss -- that give opposite predictions
-for 8% of instances.
+Discrepancy is the maximum pairwise disagreement rate between any two models in the Rashomon set (Marx et al., 2020). If discrepancy is 8%, there exist two models, both achieving near-optimal loss, that give opposite predictions for 8% of instances simultaneously. This is a stronger statement than ambiguity, which considers each instance independently. The analytic bound (computed from the ellipsoidal approximation) is typically higher than the empirical discrepancy (computed from sampled pairs), because finite sampling rarely finds the extremal model pair.
 
-This is a stronger statement than ambiguity. Ambiguity says "some model
-disagrees for this instance." Discrepancy says "there is a specific pair
-of models that disagree on this many instances simultaneously."
+## What instability does not indicate
 
-## What instability does NOT mean
+High instability does not indicate that the model is poorly specified or that the features are uninformative. It indicates that the data admits multiple valid explanations. This is a property of the problem, not a deficiency of the algorithm. The appropriate response is not to suppress the finding or switch methods but to be transparent about which conclusions are robust and which depend on the particular model selected. As Semenova, Rudin, & Parr (2022) argue, when many models fit the data equally well, the single "best" model is often an arbitrary point in a large pool of roughly equivalent solutions, and understanding this pool is more informative than treating the optimum as unique.
 
-**It does not mean the model is wrong.** High accuracy with high ambiguity
-means the model predicts well on average but some individual predictions
-are not uniquely determined by the data.
+## References
 
-**It does not mean you should switch algorithms.** If the instability is
-in the data (correlated features, overlapping classes), a different
-algorithm will face the same fundamental ambiguity.
-
-**It does not mean the features are useless.** Wide VIC intervals for
-correlated features mean the data cannot distinguish which specific
-combination of those features drives the prediction. The features
-collectively matter; their individual contributions are underdetermined.
-
-**It means the data permits multiple valid explanations.** The right
-response is transparency: report which predictions are robust, which
-are not, and let domain experts decide how to handle the ambiguous cases.
+- Fisher, A., Rudin, C., & Dominici, F. (2019). All models are wrong, but many are useful. *JMLR*, 20(177), 1--81.
+- Marx, C., Calmon, F., & Ustun, B. (2020). Predictive multiplicity in classification. *ICML*.
+- Dong, J. & Rudin, C. (2020). Exploring the cloud of variable importance for the set of all good models. *Nature Machine Intelligence*, 2, 810--824.
+- Semenova, L., Rudin, C., & Parr, R. (2022). On the existence of simpler machine learning models. *FAccT*.

@@ -1,14 +1,8 @@
 # rashomon-py
 
-Stability auditing for GLMs.
+For many practical problems, many parameter vectors achieve nearly the same loss. This is the Rashomon effect (Breiman, 2001). rashomon-py characterizes this set for L2-regularized logistic and linear regression and asks which predictions, feature importances, and individual decisions are stable across it.
 
-Answers the question: *"Would my conclusions change if I used a different
-equally-good model?"* -- in two lines of code.
-
-rashomon-py characterizes the set of all L2-regularized linear and logistic
-regression models that perform within $\epsilon$ of the optimum, then audits
-whether predictions, feature importances, and individual decisions are
-robust to the choice of model within that set.
+The $\varepsilon$-Rashomon set is $\mathcal{R}_\varepsilon = \{\theta : L(\theta) \leq L(\hat\theta) + \varepsilon\}$, the set of all parameter vectors within $\varepsilon$ of optimal loss. For convex losses with L2 regularization, this is a convex sublevel set with an analytically tractable ellipsoidal approximation. The toolkit computes stability metrics over this set using either fast closed-form certificates or hit-and-run MCMC sampling from the true set.
 
 ```{toctree}
 :maxdepth: 2

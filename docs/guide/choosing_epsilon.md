@@ -1,57 +1,44 @@
-# Choosing Epsilon
+# Choosing epsilon
 
-Epsilon defines what "equally good" means. Every output of rashomon-py depends on it.
-There is no correct epsilon -- it is a domain decision, not a statistical one.
+The parameter $\varepsilon$ controls the size of the Rashomon set. It determines what counts as "near-optimal" and therefore governs every output of the toolkit. There is no statistically correct value of $\varepsilon$; it is a definition of how much loss tolerance the analyst is willing to accept, and should be chosen with reference to the application domain, not optimized against the data.
 
 ## What epsilon controls
 
-Larger epsilon = more models in the Rashomon set = more instability reported.
-Smaller epsilon = fewer models = less instability. At epsilon = 0, the Rashomon set
-is a single point (the optimum) and nothing is unstable. At very large epsilon,
-nearly everything is unstable.
+The $\varepsilon$-Rashomon set is $\mathcal{R}_\varepsilon = \{\theta : L(\theta) \leq L(\hat\theta) + \varepsilon\}$. Larger $\varepsilon$ admits more parameter vectors and produces wider coefficient distributions, higher ambiguity, and larger discrepancy. Smaller $\varepsilon$ restricts the set toward the optimum and reduces all of these. At $\varepsilon = 0$, the set is a single point and no instability is reported; this is trivially true and uninformative.
 
-The question is: **at what loss tolerance do your conclusions break?**
+The relationship between $\varepsilon$ and ambiguity is monotone but not linear. On the Breast Cancer dataset, ambiguity ranges from 8.8% at $\varepsilon = 0.5\%$ to 60.8% at $\varepsilon = 10\%$, with a phase-transition region (roughly 1--5% for this dataset) in which ambiguity increases rapidly. Below this range, the Rashomon set is small enough that most predictions are stable. Above it, the set admits models that are meaningfully different in their predictions.
 
 ## Three calibration modes
 
-### `percent_loss` (default)
+### Percent loss
 
 ```python
 rs = RashomonSet(epsilon=0.03, epsilon_mode="percent_loss")
 ```
 
-Sets epsilon = rho * L(theta_hat). A 3% tolerance means the Rashomon set contains
-all models whose loss is within 3% of the best achievable loss.
+Sets $\varepsilon = \rho \cdot L(\hat\theta)$. At $\rho = 0.03$, the Rashomon set contains all models whose loss is within 3% of the best achievable loss. This is the default mode and is interpretable without further context: a 3% loss tolerance is a 3% loss tolerance regardless of the dataset.
 
-**Guidance:**
-- 0.01 (1%) -- strict. Only models very close to the optimum. If instability
-  appears here, it is severe.
-- 0.03 (3%) -- moderate. A reasonable default for most applications.
-- 0.05-0.10 (5-10%) -- permissive. Includes models with meaningfully higher loss.
-  Results may overstate instability.
+As a rough guide: $\rho = 0.01$ is strict (instability here is severe), $\rho = 0.03$ is moderate, and $\rho = 0.05$--$0.10$ is permissive and may overstate instability.
 
-### `LR_alpha`
+### Likelihood-ratio inversion
 
 ```python
 rs = RashomonSet(epsilon=0.05, epsilon_mode="LR_alpha")
 ```
 
-Sets epsilon = chi2(d, 1-alpha) / (2n) via Wilks' theorem. Connects the Rashomon
-set to classical likelihood ratio confidence regions. At alpha=0.05, the Rashomon
-set approximates the 95% LR confidence region for the parameters.
+Sets $\varepsilon = \chi^2_{d,1-\alpha} / (2n)$ via Wilks' theorem. This connects the Rashomon set to classical likelihood-ratio confidence regions, which provides a natural calibration for audiences familiar with statistical inference. At $\alpha = 0.05$, the Rashomon set approximates the 95% LR confidence region for the parameters.
 
-Use this when you want a statistically grounded epsilon, or when communicating
-results to an audience familiar with classical inference.
+### High-dimensional correction
 
-### `LR_alpha_highdim`
+```python
+rs = RashomonSet(epsilon=0.05, epsilon_mode="LR_alpha_highdim")
+```
 
-Experimental. Applies a high-dimensional correction (Sur-Candes) to the chi-squared
-quantile. Use with caution; the correction is approximate.
+Applies a correction for the $d/n \not\ll 1$ regime (Sur & Candes, 2019). This is experimental and should be used with caution.
 
-## Run sensitivity analysis
+## Sensitivity analysis
 
-Do not report results at a single epsilon. Compute the key metrics across a range
-and report the full curve:
+Reporting results at a single $\varepsilon$ is less informative than reporting the sensitivity curve. The following computes ambiguity across a range of tolerances:
 
 ```python
 from rashomon import RashomonSet
@@ -68,27 +55,17 @@ for eps in [0.005, 0.01, 0.02, 0.03, 0.05, 0.10]:
     print(f"epsilon={eps:.3f}  ambiguity={amb['ambiguity_rate']:.1%}")
 ```
 
-The sensitivity curve tells you where the transition from "stable" to "unstable"
-happens. That transition point is often more informative than any single number.
+The transition point, the tolerance at which ambiguity begins to increase rapidly, is often more informative than any individual number. On the Breast Cancer dataset, even at a strict 0.5% tolerance, 8.8% of patients have ambiguous diagnoses, which suggests that the multiplicity is not an artifact of a permissive tolerance but a property of the data and model class.
 
-## Common mistakes
+A diagnostic sweep on German Credit at varying regularization strength illustrates that the multiplicity is persistent: ambiguity remains above 80% across a wide range of regularization strengths at 3% loss tolerance, which indicates that the multiplicity is a property of the data, not an artifact of a particular regularization choice.
 
-**Setting epsilon too large and concluding "everything is unstable."**
-At epsilon=0.50, half the loss surface is in the Rashomon set. Of course everything
-is unstable. That is not a finding about your model; it is a finding about your
-epsilon.
+## Common failure modes in interpretation
 
-**Setting epsilon too small and concluding "everything is stable."**
-At epsilon=0.0001, only models nearly identical to the optimum are included. Of
-course nothing is unstable. The interesting question is at what tolerance instability
-appears.
+Setting $\varepsilon$ too large and concluding that everything is unstable is uninformative; at $\varepsilon = 0.50$, half the loss surface is in the Rashomon set. Setting $\varepsilon$ too small and concluding that everything is stable is trivially true. The sensitivity analysis avoids both of these by showing where the transition occurs.
 
-**Not running sensitivity analysis.**
-A single epsilon gives a single number. Without context, it is hard to interpret.
-The sensitivity curve gives the full picture.
+Treating $\varepsilon$ as a hyperparameter to optimize against data is a category error. It is a definition of "equally good," not a tuning parameter, and should be justified by domain knowledge. In medical diagnosis, a 1% loss tolerance may be the appropriate bar; in less consequential settings, 5% or 10% may be acceptable.
 
-**Treating epsilon as a hyperparameter to optimize.**
-Epsilon is not something to tune for best performance. It is a definition of
-"good enough" that should come from domain knowledge. In medical diagnosis, 1%
-loss tolerance might be the right bar. In ad click prediction, 10% might be fine.
-The choice should be justified by the application, not by the output.
+## References
+
+- Semenova, L., Rudin, C., & Parr, R. (2022). On the existence of simpler machine learning models. *FAccT*.
+- Sur, P. & Candes, E. (2019). A modern maximum-likelihood theory for high-dimensional logistic regression. *PNAS*, 116(29), 14516--14525.

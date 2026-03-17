@@ -1,50 +1,32 @@
-# When This Package Helps
+# When this toolkit is useful
 
-## Use rashomon-py when
+## The problem it addresses
 
-**You trained a logistic or linear regression and need to know if conclusions are stable.**
-Regulatory audits, clinical decision support, and credit scoring all have situations
-where individual predictions matter. If someone asks "would a different equally-good
-model give this patient a different diagnosis?", rashomon-py answers that directly.
+Most interpretability work treats the fitted model as given and asks what it has learned. The implicit assumption is that the model is, in some meaningful sense, *the* model. But for problems involving correlated or noisy features, many parameter vectors achieve nearly the same loss. If a feature importance ranking changes across these near-optimal models, the ranking is an artifact of the optimization trajectory, not a property of the data (Fisher, Rudin, & Dominici, 2019).
 
-**You want to compare model multiplicity to bootstrap uncertainty.**
-Bootstrap CIs are tight, your model looks solid, but you suspect correlated features
-create multiple valid explanations. Rashomon intervals are typically 4-11x wider than
-bootstrap CIs on the same data -- they capture a different axis of uncertainty.
+rashomon-py makes this concrete for L2-regularized logistic and linear regression by characterizing the $\varepsilon$-Rashomon set and computing metrics over it. The toolkit is useful in situations where this kind of explanation instability matters.
 
-**You need to flag unstable individual predictions.**
-Ambiguity analysis identifies exactly which instances flip across near-optimal models.
-You get a list of patients, applicants, or cases that deserve additional scrutiny.
+## Settings where it applies
 
-**You want to understand feature substitutability.**
-Correlated features often have wide coefficient distributions across the Rashomon set,
-meaning the data does not determine how much weight to assign each one. The VIC
-(coefficient distribution) and MCR (min/max importance) outputs expose this directly.
+The most natural use case is post-hoc auditing of a GLM that has already been fitted. The question is not "is this a good model?" but rather "would the conclusions change under a different, equally good model?"
 
-## Do not use rashomon-py when
+This question arises in several contexts. In regulated domains (credit scoring, clinical decision support), auditors may need to demonstrate that a model's predictions do not depend on the arbitrary choice of one near-optimal parameter vector over another. In research settings where feature importance rankings are reported as findings, the Rashomon set provides a check on whether those rankings are robust or merely reflect one of many possible decompositions (Dong & Rudin, 2020).
 
-**Your model is not L2-regularized logistic or linear regression.**
-No trees, no neural nets, no SVMs, no L1 or elastic-net penalties. The mathematics
-are specific to the L2-regularized convex loss surface.
+The toolkit is also useful for understanding feature substitutability. When features are correlated, the loss surface has flat directions, and the optimizer's particular decomposition of prediction into coefficient weights is one of many valid solutions. The VIC and MCR outputs expose this directly: if several correlated features all have wide coefficient distributions, the data does not determine how much weight to assign each one individually.
 
-**You want fairness metrics or bias auditing.**
-rashomon-py measures prediction instability, not group-level disparities. It can
-show that predictions are unstable for a subgroup, but it does not compute fairness
-metrics like demographic parity or equalized odds.
+For settings where a large Rashomon set is present, Rudin (2019) and Semenova, Rudin, & Parr (2022) argue that this creates an opportunity: if many equally accurate models exist, it may be possible to select one that is also interpretable, or fair, or aligned with domain constraints. rashomon-py does not perform this selection, but it quantifies the size and shape of the space within which such selection could occur.
 
-**You want model selection.**
-This tool audits a model you already trained. It tells you whether the conclusions
-from that model are robust. It does not pick a better model for you.
+## Limitations on applicability
 
-**Your feature space is very high-dimensional (d > ~50).**
-Certificate-based estimates become conservative at high d (7-20x overestimates at
-d=60+). Hit-and-Run MCMC mixing degrades. Consider PCA or feature selection to
-reduce dimensionality before auditing, or use certificates as conservative upper
-bounds and interpret accordingly.
+The toolkit supports only L2-regularized logistic and linear regression. The mathematics rely on the convexity of the loss and the resulting structure of the sublevel set (ellipsoidal approximation via the Hessian). This does not extend to tree models, neural networks, or penalties other than L2.
 
-**You want p-values or hypothesis tests.**
-Rashomon analysis is about model multiplicity (how many different parameter vectors
-achieve near-optimal loss), not statistical inference (whether a coefficient is
-significantly different from zero). These are different questions.
-Bootstrap CIs answer the inference question. Rashomon intervals answer the
-multiplicity question. See {doc}`why_not_bootstrap` for the full comparison.
+The certificate-based estimates grow conservative in high dimensions. At $d = 61$, the tightness ratio is 4.4--6.2x; at $d = 104$, it exceeds 8x. Hit-and-run MCMC sampling provides tighter estimates but mixing degrades in high dimensions (ESS < 10 at $d = 104$ after 500 draws). For problems with $d > 50$ or so, dimensionality reduction before auditing may be necessary for credible results.
+
+The toolkit does not compute fairness metrics (demographic parity, equalized odds, etc.), though the Rashomon set is relevant to fairness; see Rudin (2019). It does not perform model selection. It does not answer questions about statistical significance; bootstrap CIs and p-values address sampling uncertainty, while Rashomon intervals address model multiplicity, and these are different quantities.
+
+## References
+
+- Fisher, A., Rudin, C., & Dominici, F. (2019). All models are wrong, but many are useful. *JMLR*, 20(177), 1--81.
+- Dong, J. & Rudin, C. (2020). Exploring the cloud of variable importance for the set of all good models. *Nature Machine Intelligence*, 2, 810--824.
+- Rudin, C. (2019). Stop explaining black box machine learning models for high stakes decisions and use interpretable models instead. *Nature Machine Intelligence*, 1, 206--215.
+- Semenova, L., Rudin, C., & Parr, R. (2022). On the existence of simpler machine learning models. *FAccT*.
