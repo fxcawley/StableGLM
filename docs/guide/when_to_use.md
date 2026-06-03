@@ -20,7 +20,7 @@ For settings where a large Rashomon set is present, Rudin (2019) and Semenova, R
 
 The toolkit supports only L2-regularized logistic and linear regression. The mathematics rely on the convexity of the loss and the resulting structure of the sublevel set (ellipsoidal approximation via the Hessian). This does not extend to tree models, neural networks, or penalties other than L2.
 
-The certificate-based estimates grow conservative in high dimensions. At $d = 61$, the tightness ratio is 4.4--6.2x; at $d = 104$, it exceeds 8x. Hit-and-run MCMC sampling provides tighter estimates but mixing degrades in high dimensions (ESS < 10 at $d = 104$ after 500 draws). For problems with $d > 50$ or so, dimensionality reduction before auditing may be necessary for credible results.
+The Hessian-based ellipsoidal estimates grow conservative in high dimensions. At $d = 61$, the tightness ratio is 4.4--6.2x; at $d = 104$, it exceeds 8x. Hit-and-run MCMC sampling provides tighter estimates but mixing degrades in high dimensions (ESS < 10 at $d = 104$ after 500 draws). For problems with $d > 50$ or so, dimensionality reduction before auditing may be necessary for credible MCMC estimates.
 
 The toolkit does not compute fairness metrics (demographic parity, equalized odds, etc.), though the Rashomon set is relevant to fairness; see Rudin (2019). It does not perform model selection. It does not answer questions about statistical significance; bootstrap CIs and p-values address sampling uncertainty, while Rashomon intervals address model multiplicity, and these are different quantities.
 

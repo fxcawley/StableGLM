@@ -4,16 +4,16 @@
 
 rashomon-py characterizes the $\varepsilon$-Rashomon set for L2-regularized logistic and linear regression: the set of all parameter vectors achieving loss within $\varepsilon$ of the optimum. It then computes stability metrics over this set, answering the question of whether predictions, feature importances, and individual decisions are robust to the choice of model within the set.
 
-The loss surface for a GLM with L2 regularization is convex, so the Rashomon set is a convex sublevel set. Near the optimum, the Hessian $H = \nabla^2 L(\hat\theta)$ provides a local ellipsoidal approximation $\mathcal{E}_\varepsilon = \{\hat\theta + \Delta : \Delta^\top H \Delta \leq 2\varepsilon\}$ that is analytically tractable. For exact computations over the true (non-ellipsoidal) set, the toolkit uses hit-and-run sampling with a membership oracle.
+The loss surface for a GLM with L2 regularization is convex, so the Rashomon set is a convex sublevel set. Near the optimum, the Hessian $H = \nabla^2 L(\hat\theta)$ provides a local ellipsoidal approximation $\mathcal{E}_\varepsilon = \{\hat\theta + \Delta : \Delta^\top H \Delta \leq 2\varepsilon\}$ that is analytically tractable. For computations over the true (non-ellipsoidal) set, the toolkit uses hit-and-run sampling with a membership oracle.
 
-**Certificates** (closed-form, fast):
+**Ellipsoidal approximation** (closed-form, fast):
 - Coefficient intervals: per-feature parameter ranges across $\mathcal{E}_\varepsilon$
 - Probability bands: per-instance prediction ranges
 - Ambiguity upper bounds: fraction of instances where the set contains models that disagree on the label (Marx, Calmon, & Ustun, 2020)
 
-**Sampling** (asymptotically exact, slower):
+**Sampling** (targets the true sublevel set, slower):
 - Ellipsoid sampling: fast but approximate (based on the quadratic approximation)
-- Hit-and-run: asymptotically exact membership sampling from the true Rashomon set via MCMC
+- Hit-and-run: membership-oracle sampling from the true Rashomon set via MCMC
 
 **Analysis**:
 - Coefficient distributions across the Rashomon set, inspired by the Variable Importance Cloud of Dong & Rudin (2020), adapted to the GLM setting

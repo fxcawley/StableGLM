@@ -8,6 +8,8 @@ on:
       - 'rashomon/**'
       - 'pyproject.toml'
       - 'README.md'
+      - 'requirements-dev.txt'
+      - '.github/workflows/docs-pages.yml'
   workflow_dispatch:
 
 permissions:
@@ -34,7 +36,7 @@ jobs:
           pip install -r requirements-dev.txt
       - name: Build docs
         run: |
-          sphinx-build -b html docs docs/_build/html
+          sphinx-build -W -b html docs docs/_build/html
           touch docs/_build/html/.nojekyll
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

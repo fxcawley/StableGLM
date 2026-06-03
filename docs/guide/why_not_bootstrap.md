@@ -24,7 +24,7 @@ Under a Laplace approximation with Gaussian prior $N(0, (1/\lambda)I)$, the post
 
 $$\text{Bootstrap} \ll \text{Rashomon} \ll \text{Bayesian}$$
 
-At a 3% loss tolerance, the Rashomon set is approximately a subset of the Bayesian posterior. All instability flagged by the Rashomon analysis is already captured by Bayesian uncertainty. The difference is in the interpretation: the Rashomon framing is operational (there exist competing models that are equally good) rather than epistemic (our beliefs about $\theta$ are diffuse). For regulatory or auditing contexts, the operational framing is often more useful, because the question "would a different equally-good model give a different answer?" is more directly actionable than "what is our posterior belief about $\theta$?"
+In the Breast Cancer evaluation at a 3% loss tolerance, the marginal Rashomon intervals are narrower than the corresponding Bayesian intervals. The difference is in the interpretation: the Rashomon framing is operational (there exist competing models that are equally good) rather than epistemic (our beliefs about $\theta$ are diffuse). For regulatory or auditing contexts, the operational framing is often more useful, because the question "would a different equally-good model give a different answer?" is more directly actionable than "what is our posterior belief about $\theta$?"
 
 ## Implications for high-stakes applications
 

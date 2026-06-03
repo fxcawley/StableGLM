@@ -1,5 +1,7 @@
 # rashomon-py
 
+Stability auditing for GLMs: test whether predictions, coefficients, and feature-reliance claims survive movement across the set of near-optimal parameter vectors.
+
 For many practical problems, especially those involving correlated or noisy features, many parameter vectors achieve nearly the same loss. This is the Rashomon effect, named by Breiman (2001) after the Kurosawa film in which several witnesses give contradictory but internally consistent accounts of the same event. The difficulty it creates for interpretability is straightforward: if a feature appears important under one near-optimal model but irrelevant under another, the importance ranking is an artifact of which particular optimum the solver happened to find (Fisher, Rudin, & Dominici, 2019).
 
 rashomon-py makes this problem concrete for L2-regularized logistic and linear regression. Rather than examining a single fitted $\hat\theta$, it characterizes the $\varepsilon$-Rashomon set, the set of all parameter vectors whose loss is within $\varepsilon$ of optimal, and computes interpretability and multiplicity metrics over that set. The question shifts from "what did this model learn?" to "what do all near-optimal models agree on?"
@@ -48,28 +50,30 @@ The toolkit produces several quantities, each measuring a different aspect of ex
 
 **Prediction bands** give the range of predictions $[p_i^{\min}, p_i^{\max}]$ for each instance. Points with wide bands have predictions that depend on which $\theta$ was selected.
 
-Two computation modes are available: an ellipsoidal approximation (closed-form, milliseconds) derived from the Hessian at the optimum, and hit-and-run MCMC sampling from the true Rashomon set. The ellipsoidal certificates are upper bounds whose tightness varies with dimensionality; the sampling is asymptotically exact given adequate mixing.
+Two computation modes are available: a Hessian-based ellipsoidal approximation (closed-form, milliseconds) around the optimum, and hit-and-run MCMC sampling using the true Rashomon-set membership oracle. The ellipsoidal pathway is a fast screening approximation whose tightness varies with dimensionality; the sampling pathway targets the true sublevel set but should be interpreted through mixing diagnostics such as effective sample size.
 
 ## Benchmark results
 
 Results on real datasets at 3% loss tolerance with CV-selected regularization. Details in [docs/evaluation.md](docs/evaluation.md).
 
-| Dataset | d | Cert. ambiguity | Empirical ambiguity | Cert/Emp | Min ESS |
+| Dataset | d | Ellip. ambiguity | Empirical ambiguity | Ellip/Emp | Min ESS |
 |:--------|--:|:---------------:|:-------------------:|:--------:|--------:|
 | Breast Cancer PCA-10 | 10 | 36.0% | 27.0% | 1.3x | 203 |
 | Breast Cancer Full | 30 | 18.4% | 10.0% | 1.8x | 60 |
 | German Credit | 61 | 85.4% | 11.4% | 7.5x | 23 |
 | Adult Census | 104 | 79.0% | 9.2% | 8.6x | 3 |
 
-At $d = 10$, the certificate says 36% and hit-and-run confirms 27%, a 1.3x ratio. At $d = 104$, the certificate says 79% but hit-and-run finds only 9.2%. Both the certificate (overestimate) and the hit-and-run result (underestimate due to poor mixing at ESS = 3) should be interpreted with caution at this dimensionality. The practical implication is that for $d \leq 30$ or so, the certificates are sufficient; for $d > 100$, sampling is needed; and the intermediate range requires judgment.
+At $d = 10$, the ellipsoidal approximation says 36% and well-mixed hit-and-run sampling estimates 27%, a 1.3x ratio. At $d = 104$, the ellipsoidal approximation says 79% but hit-and-run finds only 9.2%. Both the approximation (conservative) and the hit-and-run estimate (low ESS = 3) should be interpreted with caution at this dimensionality. The practical implication is that for $d \leq 30$ or so, the ellipsoidal pathway is usually informative; for $d > 60$, sampling diagnostics should be reported prominently; and the intermediate range requires judgment.
 
 ## Limitations
 
+The toolkit is not a test of statistical significance, a fairness audit, a model-selection procedure, or a replacement for bootstrap or Bayesian uncertainty analysis. It audits model multiplicity: whether conclusions change across near-optimal parameter vectors.
+
 The toolkit supports only L2-regularized logistic and linear regression. This is a scope constraint, not a roadmap item; the underlying mathematics (convex sublevel sets, Hessian-based ellipsoidal approximation) are specific to this setting.
 
-The ellipsoidal certificates are valid upper bounds at any dimensionality, but they grow conservative as $d$ increases. The tightness ratio ranges from 1.3x at $d = 10$ to over 8x at $d = 100$, consistent with the expectation that the quadratic approximation becomes less accurate further from the optimum in higher dimensions.
+The Hessian-based ellipsoidal approximation grows conservative as $d$ increases. The observed tightness ratio ranges from 1.3x at $d = 10$ to over 8x at $d = 100$, consistent with the expectation that the quadratic approximation becomes less accurate further from the optimum in higher dimensions.
 
-Hit-and-run sampling is asymptotically exact but requires adequate chain length. At $d = 104$, the effective sample size after 500 draws is 3, which means the chain has not converged. Long chains or dimensionality reduction are necessary for credible empirical estimates in high dimensions.
+Hit-and-run sampling targets the true sublevel set but requires adequate chain length. At $d = 104$, the effective sample size after 500 draws is 3, which means the chain has not converged. Long chains or dimensionality reduction are necessary for credible MCMC estimates in high dimensions.
 
 All results depend on $\varepsilon$. The Rashomon set is larger for larger $\varepsilon$, and the relationship between $\varepsilon$ and ambiguity is monotone but not linear; there is typically a phase-transition region in which ambiguity increases rapidly. Running a sensitivity analysis across a range of $\varepsilon$ values is more informative than reporting a single number.
 
@@ -82,7 +86,7 @@ rashomon-py does not support tree models, neural networks, L1 or elastic-net pen
 - [Quickstart](docs/guide/quickstart.md)
 - [When to use this toolkit](docs/guide/when_to_use.md)
 - [Choosing epsilon](docs/guide/choosing_epsilon.md)
-- [Certificates vs sampling](docs/guide/certificates_vs_sampling.md)
+- [Ellipsoidal approximations vs sampling](docs/guide/certificates_vs_sampling.md)
 - [Interpreting instability](docs/guide/interpreting_instability.md)
 - [Bootstrap, Rashomon, and Bayesian intervals](docs/guide/why_not_bootstrap.md)
 - [Tutorial: when equally-good models disagree](docs/examples/tutorial.md)

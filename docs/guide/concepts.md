@@ -47,8 +47,10 @@ prior, the posterior is an ellipsoid of the same shape as the Rashomon set but t
 wider (it integrates over all plausible parameter values, not just near-optimal ones).
 
 **Rashomon coefficient intervals** measure **design-choice multiplicity**: how many
-qualitatively different models achieve loss within $\epsilon$ of the optimum? Width
-depends on $\epsilon$ and the loss surface geometry, not on $n$ directly.
+qualitatively different models achieve loss within $\epsilon$ of the optimum? Under
+a fixed operational tolerance such as `percent_loss`, width is driven by $\epsilon$
+and the loss surface geometry. Under likelihood-ratio calibration, $\epsilon$ itself
+depends on $n$ through the chosen confidence-region approximation.
 
 The typical ordering is:
 
@@ -60,7 +62,7 @@ $$\text{Bootstrap} \ll \text{Rashomon} \ll \text{Bayesian}$$
 | **Wide bootstrap CIs** | All three agree: everything is uncertain | Rashomon set is enormous |
 
 The {doc}`case study <../examples/tutorial>` demonstrates this ordering with a 1.3x
-certificate-to-empirical ratio at d=10.
+ellipsoidal-to-empirical ratio at d=10.
 
 ## Predictive Multiplicity
 

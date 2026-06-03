@@ -2051,7 +2051,7 @@ class RashomonSet:
         Returns
         -------
         dict with:
-            - 'shapley_samples': (n_samples, d) - mean |Shapley| per feature per model
+            - 'shapley_samples': (n_samples, d) - mean absolute Shapley value per feature per model
             - 'shapley_mean': (d,) - mean across models
             - 'shapley_std': (d,) - std across models
             - 'shapley_min': (d,) - min across models
@@ -2447,8 +2447,8 @@ class RashomonSet:
 
         The delta-covering number N(delta, R_eps) counts how many balls of
         radius delta are needed to cover R_eps. For the ellipsoid with
-        semi-axes a_j = sqrt(2*eps / lambda_j), it satisfies:
-            log N(delta) = sum_j log(max(a_j / delta, 1))
+        semi-axes ``a_j = sqrt(2*eps / lambda_j)``, it satisfies
+        ``log N(delta) = sum_j log(max(a_j / delta, 1))``.
 
         Parameters
         ----------
@@ -2768,21 +2768,16 @@ class RashomonSet:
     ) -> Dict[str, Any]:
         """Compare Rashomon VIC intervals to Laplace-approximate Bayesian credible intervals.
 
-        Under a Gaussian prior N(0, (1/lambda)I) and the Laplace approximation,
-        the posterior is N(theta_hat, H_posterior^{-1}) where:
-
-            H_posterior = sum_i w_i x_i x_i^T + lambda*I
+        Under a Gaussian prior ``N(0, (1/lambda)I)`` and the Laplace approximation,
+        the posterior is ``N(theta_hat, H_posterior^{-1})`` where
+        ``H_posterior = sum_i w_i x_i x_i^T + lambda*I``.
 
         This is NOT the same as our objective's Hessian H = (1/n)*X^T W X + lambda*I.
         The relationship is H_posterior = n*(H - lambda*I) + lambda*I = n*H - (n-1)*lambda*I.
 
-        The comparison reveals whether the Rashomon set (VIC intervals) is:
-        - Narrower than Bayesian: multiplicity at this epsilon is a subset of
-          what Bayesian uncertainty already captures
-        - Wider than Bayesian: the Rashomon set reveals genuine loss-surface
-          flatness beyond what posterior uncertainty explains
-        - Comparable: the two roughly agree, suggesting epsilon is well-calibrated
-          to the posterior scale
+        The comparison reveals whether the Rashomon set (VIC intervals) is
+        narrower than, wider than, or comparable to the Bayesian marginal
+        credible intervals.
 
         Parameters
         ----------

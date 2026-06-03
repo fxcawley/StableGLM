@@ -34,7 +34,7 @@ Sets $\varepsilon = \chi^2_{d,1-\alpha} / (2n)$ via Wilks' theorem. This connect
 rs = RashomonSet(epsilon=0.05, epsilon_mode="LR_alpha_highdim")
 ```
 
-Applies a correction for the $d/n \not\ll 1$ regime (Sur & Candes, 2019). This is experimental and should be used with caution.
+Applies a correction for the $d/n \not\ll 1$ regime (Sur & Candès, 2019). This is experimental and should be used with caution.
 
 ## Sensitivity analysis
 
@@ -68,4 +68,4 @@ Treating $\varepsilon$ as a hyperparameter to optimize against data is a categor
 ## References
 
 - Semenova, L., Rudin, C., & Parr, R. (2022). On the existence of simpler machine learning models. *FAccT*.
-- Sur, P. & Candes, E. (2019). A modern maximum-likelihood theory for high-dimensional logistic regression. *PNAS*, 116(29), 14516--14525.
+- Sur, P. & Candès, E. (2019). A modern maximum-likelihood theory for high-dimensional logistic regression. *PNAS*, 116(29), 14516--14525.

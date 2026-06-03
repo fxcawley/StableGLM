@@ -1,8 +1,8 @@
-# Certificates and sampling
+# Ellipsoidal approximations and sampling
 
 The toolkit provides two computation modes for exploring the Rashomon set. They differ in speed and precision, and the tradeoff between them depends on the dimensionality of the problem.
 
-## Ellipsoidal certificates
+## Ellipsoidal approximation
 
 Near the optimum, a second-order Taylor expansion of the loss gives an ellipsoidal approximation to the true Rashomon set:
 
@@ -10,24 +10,24 @@ $$\mathcal{E}_\varepsilon = \bigl\{\hat\theta + \Delta : \Delta^\top H \Delta \l
 
 where $H = \nabla^2 L(\hat\theta)$ is the Hessian at the optimum. For any linear functional $s^\top\theta$ (a single coefficient, a linear combination corresponding to a prediction at a particular point), the extrema over $\mathcal{E}_\varepsilon$ have closed forms involving $\lVert s \rVert_{H^{-1}}$. This makes coefficient intervals, prediction bands, and ambiguity bounds available in milliseconds regardless of dimensionality.
 
-The certificates are valid upper bounds at any $d$, because the ellipsoid is an outer approximation of the true (non-ellipsoidal) sublevel set. The question is how conservative this approximation is. The tightness ratio (certificate interval width divided by empirical width from hit-and-run sampling) varies with dimensionality in a consistent pattern:
+The ellipsoidal pathway is best understood as a fast Hessian-based screening approximation. The question is how conservative this approximation is. The tightness ratio (ellipsoidal interval width divided by empirical width from hit-and-run sampling) varies with dimensionality in a consistent pattern:
 
 | Dataset | $d$ | Tightness ratio | Assessment |
 |:--------|----:|:---------------:|:-----------|
-| Breast Cancer PCA-10 | 10 | 1.3--1.6x | Tight. Certificates are nearly exact. |
+| Breast Cancer PCA-10 | 10 | 1.3--1.6x | Tight. The approximation tracks sampling closely. |
 | Breast Cancer Full | 30 | 2.8--3.7x | Reasonably tight. Useful for screening. |
-| German Credit | 61 | 4.4--6.2x | Moderate. Valid bounds, not tight. |
-| Adult Census | 104 | 8.2--12.3x | Conservative. Sampling needed for precision. |
+| German Credit | 61 | 4.4--6.2x | Moderate. Useful as a conservative screen. |
+| Adult Census | 104 | 8.2--12.3x | Conservative. Sampling diagnostics dominate interpretation. |
 
 This is expected. The ellipsoidal approximation becomes less accurate as the loss surface deviates from quadratic further from the optimum, and higher-dimensional sets have more room for the true sublevel set to differ from the ellipsoidal shape.
 
 ## Hit-and-run sampling
 
-For computations over the true (non-ellipsoidal) Rashomon set, the toolkit uses hit-and-run sampling with a membership oracle. Hit-and-run is a Markov chain method that generates approximately uniform samples from a convex body by repeatedly choosing a random direction, computing the chord of the body along that direction, and sampling uniformly on the chord (Lovász & Vempala, 2006).
+For computations over the true (non-ellipsoidal) Rashomon set, the toolkit uses hit-and-run sampling with a membership oracle. Hit-and-run is a Markov chain method that targets approximately uniform samples from a convex body by repeatedly choosing a random direction, computing the chord of the body along that direction, and sampling uniformly on the chord (Lovász & Vempala, 2006).
 
 The samples are used to compute empirical coefficient distributions (VIC), empirical ambiguity and discrepancy, and other quantities that depend on the actual shape of the Rashomon set rather than its ellipsoidal approximation.
 
-The sampling is asymptotically exact given adequate mixing, but mixing quality depends on the condition number and dimensionality. The effective sample size (ESS) is the relevant diagnostic:
+The sampling targets the true sublevel set given adequate mixing, but mixing quality depends on the condition number and dimensionality. The effective sample size (ESS) is the relevant diagnostic:
 
 ```python
 samples = rs.sample_hitandrun(n_samples=1000, random_state=0)
@@ -39,11 +39,11 @@ At $d = 10$ with 1000 samples, ESS is typically above 200, which is adequate. At
 
 ## Practical guidance
 
-For $d \leq 30$ or so, the ellipsoidal certificates are sufficient for most purposes. They are fast, deterministic, and the tightness ratio is small enough that the bounds are informative. If the certificate ambiguity is zero, the model is stable at this $\varepsilon$ and there is no need to sample.
+For $d \leq 30$ or so, the ellipsoidal approximation is sufficient for many screening purposes. It is fast, deterministic, and the tightness ratio is small enough that the results are informative. If the ellipsoidal ambiguity estimate is zero, the model is stable under that approximation at this $\varepsilon$ and sampling is a confirmation step rather than a first pass.
 
-For $d > 60$, the certificates are conservative enough that their value as point estimates is limited, though they remain valid as upper bounds. Hit-and-run sampling is necessary for credible empirical estimates, but long chains (1000+ samples) are needed for adequate ESS, and the computational cost grows accordingly.
+For $d > 60$, the ellipsoidal approximation is conservative enough that its value as a point estimate is limited. Hit-and-run sampling is necessary for sharper empirical estimates, but long chains (1000+ samples) are needed for adequate ESS, and the computational cost grows accordingly.
 
-The intermediate range ($30 < d < 60$) requires judgment. Running certificates first is always worthwhile because they are free. If the certificate ambiguity is substantially above zero and the application requires precise numbers, supplementing with sampling is advisable.
+The intermediate range ($30 < d < 60$) requires judgment. Running the ellipsoidal approximation first is always worthwhile because it is cheap. If the ellipsoidal ambiguity estimate is substantially above zero and the application requires precise numbers, supplementing with sampling is advisable.
 
 ## References
 
