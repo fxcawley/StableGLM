@@ -137,3 +137,4 @@ Thumbs.db
 # Project specific
 build/out/
 build/gh/
+.cognition/
