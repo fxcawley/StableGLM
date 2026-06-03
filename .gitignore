@@ -138,3 +138,5 @@ Thumbs.db
 build/out/
 build/gh/
 .cognition/
+devnotes/
+tests/data/adult.data
