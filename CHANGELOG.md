@@ -5,6 +5,24 @@ All notable changes to rashomon-py will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - Unreleased
+
+### Added
+
+- `class_weight` and `sample_weight`. `audit(model, X, y, sample_weight=w)` and
+  `RashomonSet.from_sklearn(..., sample_weight=w)` reconstruct scikit-learn's weighted
+  objective: each row's weight is `sample_weight` times its class weight, the data term
+  is the weighted mean loss, and the regularization strength is converted relative to
+  the sum of weights (`lambda = 1/(C * sum(w))` for logistic, `alpha / sum(w)` for ridge).
+  `RashomonSet.fit(..., sample_weight=w)` exposes the same in the lower-level API; the
+  oracle, Hessian, samplers, exact ranges and bootstrap calibration all use the weighted
+  objective. The `"cv"` tolerance refits with the weights and averages held-out losses
+  with them. Row counts in the report (flip rate, disagreement) stay unweighted.
+
+### Changed
+
+- Models with `class_weight` no longer raise in `audit()`.
+
 ## [0.2.0] - 2026-10-07
 
 The package is now built around one question, asked of a fitted scikit-learn
@@ -96,5 +114,6 @@ First public release.
 L2-regularized logistic and linear regression only. No trees, neural nets,
 L1 penalties, or arbitrary estimators.
 
+[0.3.0]: https://github.com/fxcawley/StableGLM/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/fxcawley/StableGLM/releases/tag/v0.2.0
 [0.1.0]: https://github.com/fxcawley/StableGLM/releases/tag/v0.1.0

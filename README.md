@@ -82,7 +82,7 @@ Coefficient ranges are exact: each is the solution of a convex program over the 
 
 ## Supported models
 
-`LogisticRegression` / `LogisticRegressionCV` (binary; L2 or unpenalized; `class_weight=None`), `Ridge` / `RidgeCV`, `LinearRegression`, and a `Pipeline` whose last step is one of these. The regularization strength and the unpenalized intercept are converted exactly, and the audit checks that your fitted coefficients sit at the optimum of the reconstructed objective. A mismatch is reported.
+`LogisticRegression` / `LogisticRegressionCV` (binary; L2 or unpenalized; with or without `class_weight`), `Ridge` / `RidgeCV`, `LinearRegression`, and a `Pipeline` whose last step is one of these. If the model was fitted with `sample_weight`, pass the same weights to `audit(..., sample_weight=w)`. The regularization strength, the unpenalized intercept and the row weights are converted exactly, and the audit checks that your fitted coefficients sit at the optimum of the reconstructed objective. A mismatch is reported.
 
 Not supported: multiclass (planned), L1 and elastic-net penalties (the level set of a non-smooth objective is not a convex set of the same kind), trees, neural networks. The method needs a convex, twice-differentiable loss, so other L2-penalized GLMs (Poisson, multinomial) are possible extensions.
 

@@ -48,6 +48,17 @@ audit(model, X, y, tolerance=("absolute", 0.002))
 
 The default `"cv"` uses one standard error of the cross-validated loss; see {doc}`choosing_epsilon`.
 
+## Weights
+
+If the model uses `class_weight`, nothing changes: the weights are read from the model. If it was fitted with `sample_weight`, pass the same array so the audited objective is the one the model minimized:
+
+```python
+model = LogisticRegression(class_weight="balanced").fit(X, y, sample_weight=w)
+report = audit(model, X, y, sample_weight=w)
+```
+
+Weights change which models count as equally good; the flip rate is still a plain fraction of rows.
+
 ## Regression
 
 `Ridge`, `RidgeCV` and `LinearRegression` work the same way. Regression has no label to flip, so pass a decision cutoff if you have one:
