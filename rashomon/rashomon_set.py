@@ -655,6 +655,7 @@ class RashomonSet:
         if not self._fitted:
             raise RuntimeError("Call fit() first.")
         d = self._d
+        idx: Array
         if indices is None:
             idx = np.arange(d)
         else:
@@ -1688,7 +1689,7 @@ class RashomonSet:
         burnin: int = 100,
         thin: int = 2,
         random_state: Optional[int] = None,
-    ) -> Dict[str, Array]:
+    ) -> Dict[str, Any]:
         """Coefficient distribution across the Rashomon set.
 
         Samples parameter vectors from the Rashomon set and computes the
