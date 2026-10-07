@@ -668,34 +668,32 @@ class RashomonSet:
             raise RuntimeError("Call fit() first.")
         if self._theta_hat is None or self._epsilon_value is None:
             raise RuntimeError("Model not fully initialized.")
-        d = self._d
         if n_samples <= 0:
             raise ValueError("n_samples must be positive")
 
-        # Use cached Cholesky factorization (major speedup)
-        L = self._hessian_cholesky()
-
         seed = self._seed if random_state is None else int(random_state)
         rng = np.random.default_rng(seed)
-        samples = np.empty((n_samples, d), dtype=float)
-        scale = float(np.sqrt(2.0 * self._epsilon_value))
+        return self._ellipsoid_points(rng, n_samples)
 
-        # Vectorized generation for speed
-        gaussians = rng.normal(size=(n_samples, d))
+    def _ellipsoid_points(self, rng: np.random.Generator, k: int) -> Array:
+        """k points uniform in {θ : (θ-θ̂)ᵀ H (θ-θ̂) ≤ 2ε}, using the cached Cholesky factor."""
+        if self._theta_hat is None or self._epsilon_value is None:
+            raise RuntimeError("Model not fully initialized.")
+        d = self._d
+        L = self._hessian_cholesky()
+        scale = float(np.sqrt(2.0 * self._epsilon_value))
+        gaussians = rng.normal(size=(k, d))
         norms = np.linalg.norm(gaussians, axis=1, keepdims=True)
         unit_vecs = gaussians / (norms + 1e-18)
-        radii = rng.random(n_samples) ** (1.0 / d)
+        radii = rng.random(k) ** (1.0 / d)
         scaled_vecs = scale * radii[:, None] * unit_vecs
-
-        # Solve L z = y for each sample (exploit triangular structure)
-        for i in range(n_samples):
-            if _HAS_SCIPY:
-                z = solve_triangular(L, scaled_vecs[i], lower=True)
-            else:
-                z = np.linalg.solve(L, scaled_vecs[i])
-            samples[i] = self._theta_hat + z
-
-        return samples
+        # θ = θ̂ + L^{-T} y maps the ball of radius sqrt(2ε) onto the ellipsoid:
+        # (L^{-T} y)ᵀ H (L^{-T} y) = yᵀ L^{-1} L Lᵀ L^{-T} y = ||y||².
+        if _HAS_SCIPY:
+            Z = solve_triangular(L.T, scaled_vecs.T, lower=False).T
+        else:
+            Z = np.linalg.solve(L.T, scaled_vecs.T).T
+        return self._theta_hat[None, :] + Z
 
     def sample_hitandrun(
         self,
