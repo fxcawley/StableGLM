@@ -6,7 +6,7 @@ The toolkit has three ways to compute quantities over the Rashomon set. `audit()
 
 For a linear functional $s^\top\theta$ (a single coefficient, $s = e_j$, or the logit of one row, $s = x_i$) the extremes over the true set are the solutions of the convex programs $\max / \min \; s^\top\theta$ subject to $L(\theta) \le L(\hat\theta) + \varepsilon$. `RashomonSet.functional_range(s)` solves them. For linear models the set is the Hessian ellipsoid and the closed form applies. For logistic models the maximizer is $\theta(\mu) = \arg\min_\theta L(\theta) - \mu\, s^\top\theta$ for the unique $\mu > 0$ with $L(\theta(\mu)) = L(\hat\theta) + \varepsilon$; $\mu$ is found by safeguarded root finding with warm-started Newton solves. The cost is a few dozen Hessian builds per functional.
 
-`audit()` uses this for coefficient ranges (and so for `sign_stable`) whenever $n \cdot d^2 \le 5\cdot10^6$, so those results do not depend on how many models were sampled. Sampled extremes understate the range: on the breast-cancer example, 4000 hit-and-run draws recover 70 to 85% of the exact coefficient ranges in 11 dimensions.
+`audit()` uses this for coefficient ranges (and so for `sign_stable`) whenever $n \cdot d^2 \le 5\cdot10^6$, so those results do not depend on how many models were sampled. The per-row flip test is exact in the same way: row $i$ can flip iff $\min\{L(\theta) : x_i^\top\theta = \tau\} \le L(\hat\theta) + \varepsilon$, one equality-constrained Newton solve per row (`RashomonSet.can_flip`); rows already flipped by a sampled model are settled without it. Sampled extremes understate the range: on the breast-cancer example, 4000 hit-and-run draws recover 70 to 85% of the exact coefficient ranges in 11 dimensions.
 
 ## Ellipsoidal approximation
 

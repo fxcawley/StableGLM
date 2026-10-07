@@ -23,10 +23,10 @@ Output for the ten "mean" features of the Wisconsin breast-cancer data with the 
 Stability audit: LogisticRegression (classification), n=569, 10 features
 Equally-good models: training log-loss within 0.01704 of the optimum 0.1435
   (one standard error of the 5-fold cross-validated log-loss, whose mean is 0.1458; models closer than this cannot be told apart by CV)
-Method: hit-and-run sampling of the exact set (with ellipsoid proposals); 2,000 models, min ESS = 387 -> reliable
+Method: hit-and-run sampling of the exact set (with ellipsoid proposals); 2,000 models, min ESS = 218 -> reliable
 
-Predictions (over the sampled models; lower bounds)
-  Flip under some equally-good model:           14.4%  (82 of 569)
+Predictions (flip test exact; disagreement over the sampled models)
+  Flip under some equally-good model:           17.4%  (99 of 569)
   Worst single-model disagreement with yours:    5.1%
 
 Coefficients (exact range across all equally-good models)
@@ -41,7 +41,7 @@ Sign stable: 1 of 10 features.
 
 ![audit plot](https://raw.githubusercontent.com/fxcawley/StableGLM/main/docs/_static/audit_breast_cancer.png)
 
-The model is 95% accurate. Still, one diagnosis in seven is reversed by some model that cross-validation cannot distinguish from it, and only the coefficient on texture keeps its sign across all of them. Radius, perimeter and area are near-duplicates, so the data fixes their combined effect but not how to split it between them. A claim like "tumour radius lowers the odds" would not survive.
+The model is 95% accurate. Still, one diagnosis in six is reversed by some model that cross-validation cannot distinguish from it, and only the coefficient on texture keeps its sign across all of them. Radius, perimeter and area are near-duplicates, so the data fixes their combined effect but not how to split it between them. A claim like "tumour radius lowers the odds" would not survive.
 
 ## Install
 
@@ -62,6 +62,7 @@ The tolerance sets how much worse than optimal a model may be and still count. `
 | `"cv"` (default) | one standard error of the cross-validated loss; models closer than this cannot be told apart by cross-validation (the one-standard-error rule from glmnet) | data-driven default |
 | `0.01` (any float in (0,1)) | models at most 1% worse than optimal on the training loss | a rule that is easy to state; `0.01` to `0.05` are common |
 | `"lr"` / `("lr", 0.05)` | the models not rejected by a likelihood-ratio test at level α | unpenalized fits |
+| `("profile", 0.05)` | χ²₁(0.95)/(2n): for an unpenalized fit the coefficient ranges are the 95% profile-likelihood confidence intervals | statistical reporting; see Validation below |
 | `("absolute", 0.002)` | a loss gap in training-loss units | reproducing a published setting |
 
 The CV default is permissive, so expect larger sets than with a 1% rule. Results at two or three tolerances say more than any single one; see [Choosing the tolerance](https://fxcawley.github.io/StableGLM/guide/choosing_epsilon.html).
@@ -78,7 +79,11 @@ The CV default is permissive, so expect larger sets than with a 1% rule. Results
 | `tolerance` | the loss gap defining the set | ε in the ε-Rashomon set (Fisher, Rudin & Dominici 2019) |
 | `rashomon_set`, `samples` | the underlying `RashomonSet` and the sampled parameter vectors | |
 
-Coefficient ranges are exact: each is the solution of a convex program over the true set (automatic when `n · d² ≤ 5·10⁶`; force with `exact_ranges=True`). Prediction-level numbers are computed over models sampled from the exact set, so they are lower bounds that tighten as `n_samples` grows. The report states the effective sample size and whether it is reliable.
+Coefficient ranges and the flip test are exact: each coefficient range is the solution of a convex program over the true set, and each row not already flipped by a sampled model is settled by one more convex program (automatic when the problem is small enough: `n · d² ≤ 5·10⁶` for ranges, `n_undecided · n · d² ≤ 10⁹` for flips; force with `exact_ranges=True` / `exact_flips=True`). The disagreement figure and the prediction ranges come from models sampled from the exact set, so they are lower bounds that tighten as `n_samples` grows. The report states the effective sample size and whether it is reliable.
+
+## Validation
+
+For an unpenalized logistic regression, the range of a coefficient over the Rashomon set with tolerance χ²₁(0.95)/(2n) is by definition its 95% profile-likelihood confidence interval, so the exact-range machinery can be checked against a standard statistical result. On the UCLA graduate-admissions data (`admit ~ gre + gpa + rank`, n = 400), `coef_extremes()` reproduces all twelve bounds of R's `confint()` output to within 1e-4 (R's own interpolation precision) and the MLE to 5e-7; the test also agrees with an independent profile root-finder to 2e-6. A second test grids a two-dimensional Rashomon set and checks the exact ranges, the exact flip test and the sampler's moments against brute force. See `tests/test_validation.py`.
 
 ## Supported models
 

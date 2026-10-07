@@ -14,6 +14,14 @@ Two things to keep in mind. The standard error of a mean loss scales like $\sigm
 
 The other `tolerance` forms map onto the calibration modes below: a float is `percent_loss`, `"lr"` / `("lr", alpha)` is `LR_alpha`, and `("absolute", gap)` is `absolute`.
 
+## Profile-likelihood intervals: `("profile", alpha)`
+
+```python
+report = audit(model, X, y, tolerance=("profile", 0.05))
+```
+
+Sets $\varepsilon = \chi^2_{1,1-\alpha} / (2n)$. For an unpenalized fit, the range of coefficient $j$ over this set is the $(1-\alpha)$ profile-likelihood confidence interval: maximizing $\beta_j$ subject to $L(\theta) \le L(\hat\theta) + \varepsilon$ minimizes the loss over the other coordinates, which is what profiling does. This is the calibration to use when the coefficient ranges should be read as confidence intervals; `tests/test_validation.py` checks it against R's `confint()` on the UCLA admissions data. Under L2 regularization the correspondence is approximate. Note the difference from `"lr"`, which uses $\chi^2_d$ (a joint region for all coefficients) and therefore gives wider per-coefficient ranges.
+
 ## What epsilon controls
 
 The $\varepsilon$-Rashomon set is $\mathcal{R}_\varepsilon = \{\theta : L(\theta) \leq L(\hat\theta) + \varepsilon\}$. Larger $\varepsilon$ admits more parameter vectors and produces wider coefficient distributions, higher ambiguity, and larger discrepancy. Smaller $\varepsilon$ restricts the set toward the optimum and reduces all of these. At $\varepsilon = 0$, the set is a single point and no instability is reported; this is trivially true and uninformative.

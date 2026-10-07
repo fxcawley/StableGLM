@@ -37,7 +37,7 @@ from .rashomon_set import RashomonSet
 try:
     __version__ = version("rashomon-py")
 except PackageNotFoundError:
-    __version__ = "0.3.0"
+    __version__ = "0.3.1"
 
 __all__ = [
     # One-call audit

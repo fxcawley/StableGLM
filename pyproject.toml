@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "rashomon-py"
-version = "0.3.0"
+version = "0.3.1"
 description = "Does your conclusion survive every equally-good model? Multiplicity audits for scikit-learn linear models."
 readme = "README.md"
 requires-python = ">=3.9"
