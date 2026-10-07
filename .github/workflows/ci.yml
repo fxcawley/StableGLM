@@ -48,6 +48,10 @@ jobs:
     - name: Verify tutorial claims
       run: |
         python scripts/verify_tutorial_claims.py
+
+    - name: Run README example
+      run: |
+        python scripts/generate_readme_figure.py
     
     - name: Upload coverage to Codecov
       if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'

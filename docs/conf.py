@@ -30,6 +30,10 @@ autodoc_default_options = {
     "inherited-members": True,
 }
 
+# Render "Attributes" sections as :ivar: fields so they do not duplicate the
+# dataclass members that autodoc also documents.
+napoleon_use_ivar = True
+
 html_theme = "sphinx_rtd_theme"
 
 html_theme_options = {

@@ -1,6 +1,18 @@
 API Reference
 =============
 
+rashomon.audit
+--------------
+
+.. autofunction:: rashomon.audit
+
+rashomon.StabilityReport
+------------------------
+
+.. autoclass:: rashomon.StabilityReport
+   :members:
+   :undoc-members:
+
 rashomon.RashomonSet
 --------------------
 
@@ -17,4 +29,3 @@ rashomon.plotting
    :members:
    :undoc-members:
    :show-inheritance:
-

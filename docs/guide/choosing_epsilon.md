@@ -1,6 +1,18 @@
-# Choosing epsilon
+# Choosing the tolerance (epsilon)
 
-The parameter $\varepsilon$ controls the size of the Rashomon set. It determines what counts as "near-optimal" and therefore governs every output of the toolkit. There is no statistically correct value of $\varepsilon$; it is a definition of how much loss tolerance the analyst is willing to accept, and should be chosen with reference to the application domain, not optimized against the data.
+The parameter $\varepsilon$ (the `tolerance` argument of `audit()`) controls the size of the Rashomon set. It determines what counts as "near-optimal" and therefore governs every output of the toolkit. There is no statistically correct value of $\varepsilon$; it is a definition of how much loss tolerance the analyst is willing to accept, and should be chosen with reference to the application domain, not optimized against the data.
+
+## The default in `audit()`: one cross-validation standard error
+
+```python
+report = audit(model, X, y)                 # tolerance="cv"
+```
+
+`audit()` refits a clone of your model on `cv` folds, records the held-out loss of each fold, and sets $\varepsilon$ to the standard error of the mean held-out loss. Two models whose training losses differ by less than this amount could not be told apart by cross-validation on your data, so it is a defensible, data-driven meaning of "equally good" -- the same reasoning behind the one-standard-error rule used to pick the regularization strength in glmnet.
+
+Two properties to keep in mind. First, it is deliberately permissive: the standard error of a mean loss scales like $\sigma_{\text{loss}}/\sqrt{n}$, which on small datasets can be 10% or more of the loss itself, so sets are larger than under a 1% rule. Second, it is applied to the training objective of a *fixed* dataset, so it is a calibration heuristic, not a hypothesis test. The report always prints the resulting $\varepsilon$ alongside the optimal loss so the choice is visible.
+
+The other `tolerance` forms map onto the calibration modes below: a float is `percent_loss`, `"lr"` / `("lr", alpha)` is `LR_alpha`, and `("absolute", gap)` is `absolute`.
 
 ## What epsilon controls
 
@@ -8,7 +20,15 @@ The $\varepsilon$-Rashomon set is $\mathcal{R}_\varepsilon = \{\theta : L(\theta
 
 The relationship between $\varepsilon$ and ambiguity is monotone but not linear. On the Breast Cancer dataset, ambiguity ranges from 8.8% at $\varepsilon = 0.5\%$ to 60.8% at $\varepsilon = 10\%$, with a phase-transition region (roughly 1--5% for this dataset) in which ambiguity increases rapidly. Below this range, the Rashomon set is small enough that most predictions are stable. Above it, the set admits models that are meaningfully different in their predictions.
 
-## Three calibration modes
+## Calibration modes of `RashomonSet`
+
+### Absolute
+
+```python
+rs = RashomonSet(epsilon=0.002, epsilon_mode="absolute")
+```
+
+Sets $\varepsilon$ to the given loss gap directly, in the units of the training objective. This is what `audit(tolerance="cv")` and `tolerance=("absolute", gap)` use internally.
 
 ### Percent loss
 
@@ -38,21 +58,23 @@ Applies a correction for the $d/n \not\ll 1$ regime (Sur & Candès, 2019). This 
 
 ## Sensitivity analysis
 
-Reporting results at a single $\varepsilon$ is less informative than reporting the sensitivity curve. The following computes ambiguity across a range of tolerances:
+Reporting results at a single $\varepsilon$ is less informative than reporting the sensitivity curve. The following computes the flip rate across a range of tolerances:
 
 ```python
-from rashomon import RashomonSet
 from sklearn.datasets import load_breast_cancer
+from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
+from rashomon import audit
 
-X, y = load_breast_cancer(return_X_y=True)
-X = StandardScaler().fit_transform(X[:, :10])
+data = load_breast_cancer(as_frame=True)
+X, y = data.data.iloc[:, :10], data.target
+model = make_pipeline(StandardScaler(), LogisticRegression()).fit(X, y)
 
-for eps in [0.005, 0.01, 0.02, 0.03, 0.05, 0.10]:
-    rs = RashomonSet(estimator="logistic", epsilon=eps,
-                     epsilon_mode="percent_loss", random_state=0).fit(X, y.astype(float))
-    amb = rs.ambiguity(X)
-    print(f"epsilon={eps:.3f}  ambiguity={amb['ambiguity_rate']:.1%}")
+for tol in [0.005, 0.01, 0.02, 0.03, 0.05, 0.10]:
+    report = audit(model, X, y, tolerance=tol, n_samples=500, random_state=0)
+    print(f"tolerance={tol:.3f}  flip rate={report.flip_rate:.1%}  "
+          f"sign-stable features={len(report.stable_features)}/{report.n_features}")
 ```
 
 The transition point, the tolerance at which ambiguity begins to increase rapidly, is often more informative than any individual number. On the Breast Cancer dataset, even at a strict 0.5% tolerance, 8.8% of patients have ambiguous diagnoses, which suggests that the multiplicity is not an artifact of a permissive tolerance but a property of the data and model class.
