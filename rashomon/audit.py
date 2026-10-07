@@ -55,12 +55,14 @@ class StabilityReport:
     flip_rate : float or None
         Fraction of rows whose predicted label changes under some equally-good
         model [ambiguity, Marx, Calmon & Ustun 2020]. ``None`` for regression
-        without a ``threshold``.
+        without a ``threshold``. Exact when ``flip_method == "exact"`` (each
+        undecided row is tested by a convex program); otherwise over sampled models.
     flipped : ndarray of bool, shape (n,)
         Row mask of those predictions.
     max_disagreement : float or None
         Largest fraction of rows on which a single equally-good model disagrees with
-        your model [discrepancy, Marx et al. 2020]. Always ``<= flip_rate``.
+        your model [discrepancy, Marx et al. 2020]. Over sampled models; always
+        ``<= flip_rate``.
     coefficients : DataFrame indexed by feature
         ``estimate`` (your model), ``low``/``high`` (range across equally-good
         models) and ``sign_stable`` (the range excludes zero) [variable importance
@@ -76,8 +78,8 @@ class StabilityReport:
         Minimum effective sample size across coefficients and its label
         (``reliable`` / ``fair`` / ``unreliable``).
 
-    Quantities computed over sampled models (flip rate, disagreement, prediction
-    ranges, and coefficient ranges when not exact) are lower bounds: every sampled
+    Quantities computed over sampled models (disagreement, prediction ranges, and
+    flip rate or coefficient ranges when not exact) are lower bounds: every sampled
     model is in the set, but the set is not exhausted. Increase ``n_samples`` to
     tighten them.
     """
@@ -100,6 +102,7 @@ class StabilityReport:
     n_flipped: Optional[int]
     flipped: Array
     max_disagreement: Optional[float]
+    flip_method: str  # "exact" | "sampled" | "none"
     coefficients: pd.DataFrame
     coefficient_ranges: str  # "exact" | "sampled"
     intercept: Optional[float]
@@ -132,8 +135,13 @@ class StabilityReport:
         return [str(f) for f in self.coefficients.index[mask]]
 
     # ------------------------------------------------------------- new data
-    def predict_ranges(self, X: Any) -> pd.DataFrame:
-        """Prediction ranges (and flips) for new rows, using the sampled models."""
+    def predict_ranges(self, X: Any, exact_flips: Optional[bool] = None) -> pd.DataFrame:
+        """Prediction ranges and flips for new rows.
+
+        Ranges come from the sampled models. Flips are exact (one convex program per
+        row not already flipped by a sampled model) when ``exact_flips`` is True, or
+        by default whenever the report's own flips were exact.
+        """
         pre = self.details.get("_preprocessor")
         X_t = pre.transform(X) if pre is not None else X
         X_arr = to_numpy(X_t)
@@ -143,6 +151,9 @@ class StabilityReport:
         theta_hat = self._rs._theta_hat
         assert theta_hat is not None
         scan = _scan_predictions(self._rs._prepare_X(X_arr), theta_hat, self._samples, tau)
+        use_exact = self.flip_method == "exact" if exact_flips is None else exact_flips
+        if tau is not None and use_exact:
+            scan["flipped"] = _exact_flips(self._rs, X_arr, tau, scan["flipped"])
         return _ranges_frame(self.task, scan, tau, index=getattr(X, "index", None))
 
     # --------------------------------------------------------------- output
@@ -158,8 +169,12 @@ class StabilityReport:
             "",
         ]
         if self.flip_rate is not None:
+            if self.flip_method == "exact":
+                head = "Predictions (flip test exact; disagreement over the sampled models)"
+            else:
+                head = "Predictions (over the sampled models; lower bounds)"
             lines += [
-                "Predictions (over the sampled models; lower bounds)",
+                head,
                 f"  {'Flip under some equally-good model:':<{w}}{self.flip_rate:7.1%}  ({self.n_flipped:,} of {self.n:,})",
                 f"  {'Worst single-model disagreement with yours:':<{w}}{self.max_disagreement:7.1%}",
                 "",
@@ -244,6 +259,7 @@ def audit(
     cv: int = 5,
     method: str = "auto",
     exact_ranges: Union[bool, str] = "auto",
+    exact_flips: Union[bool, str] = "auto",
     sample_weight: Any = None,
     random_state: Optional[int] = None,
     feature_names: Optional[Sequence[str]] = None,
@@ -290,6 +306,12 @@ def audit(
         over the true set instead of from the sampled models. Costs a few dozen
         Hessian builds per coefficient; ``"auto"`` does it whenever
         ``n * n_features**2 <= 5e6``.
+    exact_flips : bool or "auto", default "auto"
+        Decide each row's flip exactly: rows already flipped by a sampled model are
+        settled; every other row is tested with one convex program
+        (``RashomonSet.can_flip``). ``"auto"`` does it whenever
+        ``n_undecided * n * n_features**2 <= 1e9``; otherwise the flip rate is over
+        the sampled models and labelled as a lower bound.
     sample_weight : array-like of shape (n,), optional
         The ``sample_weight`` the model was fitted with, if any. ``class_weight`` is
         read from the model itself. Weights change which models count as equally
@@ -391,10 +413,24 @@ def audit(
     tau = _threshold_to_score(task, threshold)
     scan = _scan_predictions(rs._prepare_X(X_arr), rs._theta_hat, samples, tau)
     scores_hat, flipped = scan["scores_hat"], scan["flipped"]
+    if exact_flips not in (True, False, "auto"):
+        raise ValueError("exact_flips must be True, False or 'auto'")
+    flip_method = "none"
     if tau is not None:
+        n_undecided = int(np.sum(~flipped))
+        do_exact_flips = exact_flips is True or (
+            exact_flips == "auto" and n_undecided * n * spec.n_features**2 <= 1e9
+        )
+        if do_exact_flips:
+            flipped = _exact_flips(rs, X_arr, tau, flipped)
+            flip_method = "exact"
+        else:
+            flip_method = "sampled"
+            notes.append("flip rate is over sampled models (pass exact_flips=True for the exact test)")
         flip_rate: Optional[float] = float(np.mean(flipped))
         n_flipped: Optional[int] = int(np.sum(flipped))
         max_disagreement: Optional[float] = float(np.max(scan["disagree_counts"]) / n)
+        scan["flipped"] = flipped
     else:
         flip_rate = n_flipped = max_disagreement = None
 
@@ -462,6 +498,7 @@ def audit(
         n_flipped=n_flipped,
         flipped=flipped,
         max_disagreement=max_disagreement,
+        flip_method=flip_method,
         coefficients=coefficients,
         coefficient_ranges=coefficient_ranges,
         intercept=intercept,
@@ -508,6 +545,15 @@ def _scan_predictions(
             flipped[sl] = disagree.any(axis=1)
             disagree_counts += disagree.sum(axis=0)
     return {"scores_hat": scores_hat, "low": lo, "high": hi, "flipped": flipped, "disagree_counts": disagree_counts}
+
+
+def _exact_flips(rs: RashomonSet, X_arr: Array, tau: float, sampled_flips: Array) -> Array:
+    """Settle the rows not flipped by any sampled model with the exact hyperplane test."""
+    flipped = sampled_flips.copy()
+    undecided = ~flipped
+    if np.any(undecided):
+        flipped[undecided] = rs.can_flip(X_arr[undecided], tau)
+    return flipped
 
 
 def _ranges_frame(task: str, scan: Dict[str, Array], tau: Optional[float], index: Any = None) -> pd.DataFrame:

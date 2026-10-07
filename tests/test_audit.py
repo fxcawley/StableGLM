@@ -344,7 +344,9 @@ def test_exact_vs_sampled_coefficient_ranges(cancer):
 def test_flip_definition_matches_sampled_predictions(cancer):
     X, y = cancer
     model = LogisticRegression(max_iter=2000).fit(X, y)
-    report = audit(model, X, y, tolerance=0.03, threshold=0.3, **_fast())
+    report = audit(model, X, y, tolerance=0.03, threshold=0.3, exact_flips=False, **_fast())
+    assert report.flip_method == "sampled"
+    assert any("exact_flips=True" in n for n in report.details["notes"])
     rs = report.rashomon_set
     Xa = rs._prepare_X(X.to_numpy())
     tau = np.log(0.3 / 0.7)
@@ -353,6 +355,31 @@ def test_flip_definition_matches_sampled_predictions(cancer):
     expected = (preds != pred_hat[:, None]).any(axis=1)
     assert (report.flipped == expected).all()
     assert report.max_disagreement == pytest.approx((preds != pred_hat[:, None]).mean(axis=0).max())
+
+
+def test_exact_flips_extend_sampled_flips(cancer):
+    X, y = cancer
+    model = LogisticRegression(max_iter=2000).fit(X, y)
+    sampled = audit(model, X, y, tolerance=0.03, exact_flips=False, **_fast())
+    exact = audit(model, X, y, tolerance=0.03, **_fast())  # auto -> exact at this size
+    assert exact.flip_method == "exact"
+    assert "flip test exact" in exact.summary()
+    # every sampled flip is real; the exact test can only add rows
+    assert np.all(exact.flipped[sampled.flipped])
+    assert exact.flip_rate >= sampled.flip_rate
+    assert exact.max_disagreement <= exact.flip_rate
+    # exact flips agree with the exact logit range crossing the threshold
+    rs = exact.rashomon_set
+    Xa = rs._prepare_X(X.to_numpy())
+    closest = np.argsort(np.abs(Xa @ rs._theta_hat))[:25]
+    for i in closest:
+        lo, hi = rs.functional_range(Xa[i])
+        assert (lo <= 0.0 <= hi) == exact.flipped[i]
+    # the same decision is available for new rows
+    new = exact.predict_ranges(X.iloc[:50])
+    assert (new["flipped"].to_numpy() == exact.flipped[:50]).all()
+    with pytest.raises(ValueError, match="exact_flips"):
+        audit(model, X, y, tolerance=0.03, exact_flips="yes", **_fast())
 
 
 def test_regression_threshold_enables_flips(regression_data):

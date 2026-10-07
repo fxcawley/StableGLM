@@ -1329,6 +1329,106 @@ class RashomonSet:
                 break
         return float(s @ best_theta)
 
+    def min_loss_on_hyperplane(self, s: Array, c: float) -> float:
+        """Exact ``min L(θ)`` subject to ``sᵀθ = c``.
+
+        Used to decide whether a prediction can cross a threshold: for a row ``x`` with
+        ``xᵀθ̂ > τ``, some model in the ε-Rashomon set predicts the other label iff
+        ``min_{xᵀθ = τ} L(θ) ≤ L(θ̂) + ε`` (by convexity the set meets the hyperplane iff
+        it contains a point on it). For linear models the minimum has a closed form;
+        for logistic models it is found by Newton's method on the hyperplane
+        (a KKT system per step) with Armijo backtracking.
+        """
+        if not self._fitted or self._theta_hat is None or self._L_hat is None or self._lambda is None:
+            raise RuntimeError("Call fit() first.")
+        s = np.asarray(s, dtype=float)
+        if s.ndim != 1 or s.shape[0] != self._d:
+            raise ValueError("s must be a 1D vector of length d")
+        theta_hat = self._theta_hat
+        gap = float(c) - float(s @ theta_hat)
+        if gap == 0.0:
+            return float(self._L_hat)
+        if self.estimator == "linear":
+            # L(θ) - L̂ = ½ (θ-θ̂)ᵀ H (θ-θ̂); the minimum on the hyperplane is ½ gap² / sᵀH⁻¹s.
+            L = self._hessian_cholesky()
+            if _HAS_SCIPY:
+                hinv_s = solve_triangular(L.T, solve_triangular(L, s, lower=True), lower=False)
+            else:
+                hinv_s = np.linalg.solve(L.T, np.linalg.solve(L, s))
+            quad = float(s @ hinv_s)
+            return float(self._L_hat) + (0.5 * gap * gap / quad if quad > 0 else np.inf)
+        assert self._X is not None and self._y is not None
+        X, y, lam, mask, sw = self._X, self._y, float(self._lambda), self._reg_mask_or_ones(), self._sw_or_ones()
+        n, d = X.shape
+        # feasible start: project θ̂ onto the hyperplane
+        theta = theta_hat + s * (gap / float(s @ s))
+        L_curr = self._logistic_loss(X, y, theta, lam, mask, sw)
+        gtol = min(self.tol, 1e-8)
+        K = np.zeros((d + 1, d + 1))
+        K[:d, d] = s
+        K[d, :d] = s
+        rhs = np.zeros(d + 1)
+        for _ in range(100):
+            p = _sigmoid(X @ theta)
+            g = (X.T @ (sw * (p - y))) / n + lam * mask * theta
+            # projected gradient (component of g along the hyperplane)
+            g_proj = g - s * (float(g @ s) / float(s @ s))
+            if float(np.linalg.norm(g_proj)) <= gtol:
+                break
+            w = sw * p * (1.0 - p)
+            K[:d, :d] = (X.T @ (X * w[:, None])) / n + lam * np.diag(mask) + 1e-12 * np.eye(d)
+            rhs[:d] = -g
+            rhs[d] = 0.0  # already feasible
+            try:
+                step = np.linalg.solve(K, rhs)[:d]
+            except np.linalg.LinAlgError:
+                step = -g_proj
+            slope = float(g @ step)  # negative for a descent direction
+            if slope >= 0.0:
+                step = -g_proj
+                slope = float(g @ step)
+            t = 1.0
+            accepted = False
+            while t > 1e-10:
+                theta_new = theta + t * step
+                L_new = self._logistic_loss(X, y, theta_new, lam, mask, sw)
+                if L_new <= L_curr + 1e-4 * t * slope:
+                    accepted = True
+                    break
+                t *= 0.5
+            if not accepted:
+                break
+            theta, L_curr = theta_new, L_new
+        return float(L_curr)
+
+    def can_flip(self, X: Array, tau: float = 0.0) -> Array:
+        """Exact per-row test: can some model in the set put row ``i`` on the other side of ``tau``?
+
+        Returns a boolean array over the rows of ``X`` (raw features; the intercept is
+        handled internally). Rows exactly on the threshold under θ̂ count as flippable.
+        Rows that the strong-convexity bound ``|xᵀ(θ-θ̂)| ≤ ||x|| sqrt(2ε/λ)`` rules out are
+        skipped without an optimization.
+        """
+        if not self._fitted or self._theta_hat is None or self._epsilon_value is None or self._L_hat is None:
+            raise RuntimeError("Call fit() first.")
+        Xa = self._prepare_X(np.asarray(X, dtype=float))
+        scores = Xa @ self._theta_hat
+        eps = float(self._epsilon_value)
+        target = float(self._L_hat) + eps + float(self.tol)
+        out = np.zeros(Xa.shape[0], dtype=bool)
+        lam = float(self._lambda) if self._lambda is not None else 0.0
+        penalized_all = bool(self._reg_mask is None or np.all(self._reg_mask > 0))
+        radius = np.sqrt(2.0 * eps / lam) if (lam > 0.0 and penalized_all) else np.inf
+        for i in range(Xa.shape[0]):
+            margin = scores[i] - tau
+            if margin == 0.0:
+                out[i] = True
+                continue
+            if abs(margin) > radius * float(np.linalg.norm(Xa[i])):
+                continue
+            out[i] = self.min_loss_on_hyperplane(Xa[i], tau) <= target
+        return out
+
     def coef_extremes(self, indices: Optional[Array] = None) -> Array:
         """Exact per-coordinate ``[min, max]`` over the ε-Rashomon set (see :meth:`functional_range`).
 
