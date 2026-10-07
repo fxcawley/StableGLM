@@ -219,7 +219,9 @@ class RashomonSet:
         .. warning::
             This is **not** scikit-learn's ``C``. scikit-learn minimizes
             ``C_sk * sum_i loss_i + 0.5 ||w||^2``, so ``C_sk = C / n``
-            (equivalently ``lambda = 1 / (n * C_sk)``).
+            (equivalently ``lambda = 1 / (n * C_sk)``). To audit an existing
+            scikit-learn model use :func:`rashomon.audit` or
+            :meth:`RashomonSet.from_sklearn`, which perform the conversion.
     epsilon : float
         Tolerance parameter.
         - If epsilon_mode == "percent_loss": interpreted as rho in (0,1) (percentage of loss increase).
@@ -439,6 +441,26 @@ class RashomonSet:
         self._fitted = True
         return self
 
+    @classmethod
+    def from_sklearn(cls, model: Any, X: Array, y: Array, **kwargs: Any) -> RashomonSet:
+        """Build a :class:`RashomonSet` around an already-fitted scikit-learn model.
+
+        Supported: ``LogisticRegression`` (binary, L2 or unpenalized),
+        ``LogisticRegressionCV``, ``Ridge``, ``RidgeCV``, ``LinearRegression``, and a
+        ``Pipeline`` ending in one of these. The regularization strength and intercept
+        handling are converted so that the audited optimum is the model you fitted.
+
+        Parameters
+        ----------
+        model : fitted estimator
+        X, y : training data (``X`` may be a pandas DataFrame)
+        **kwargs : forwarded to :class:`RashomonSet` (e.g. ``epsilon``, ``epsilon_mode``,
+            ``random_state``). ``estimator``, ``C``, ``fit_intercept`` and
+            ``penalize_intercept`` are derived from ``model`` and cannot be overridden.
+        """
+        from ._sklearn import rashomon_set_from_sklearn
+
+        return rashomon_set_from_sklearn(cls, model, X, y, **kwargs)
 
     def diagnostics(self) -> Dict[str, Any]:
         if not self._fitted:

@@ -1,36 +1,49 @@
-"""rashomon-py: stability auditing for GLMs.
+"""rashomon-py: does your conclusion survive every equally-good model?
 
-Public API (v0)
----------------
-The v0 API contract covers the symbols listed in ``__all__`` below.
+Audit a fitted scikit-learn linear model for *model multiplicity*: whether the
+predictions, coefficient signs and feature rankings you are about to report would
+change under a different model that fits the training data essentially as well.
+
+Quick start::
+
+    from sklearn.linear_model import LogisticRegression
+    from rashomon import audit
+
+    model = LogisticRegression().fit(X, y)
+    report = audit(model, X, y)
+    print(report.summary())
+    report.plot()
+
+Public API (v0.2)
+-----------------
+``audit`` / ``StabilityReport``
+    One-call audit of a fitted ``LogisticRegression``, ``Ridge``, ``LinearRegression``
+    (or a ``Pipeline`` ending in one). Plain-language outputs.
+``RashomonSet``
+    Expert API: define, sample and interrogate the ε-Rashomon set directly
+    (``RashomonSet.from_sklearn`` converts a fitted model).
+``plot_vic`` / ``plot_ambiguity`` / ``plot_discrepancy``
+    Plotting helpers for ``RashomonSet`` outputs.
+
 Everything else in this package is internal and may change without notice.
-
-Core workflow::
-
-    from rashomon import RashomonSet
-
-    rs = RashomonSet(estimator="logistic", epsilon=0.03,
-                     epsilon_mode="percent_loss").fit(X, y)
-    rs.ambiguity(X)
-    rs.variable_importance_cloud()
-    rs.discrepancy(X)
-    rs.plot_vic()
-
-Plotting helpers are available via ``rashomon.plotting``.
 """
 
 from importlib.metadata import PackageNotFoundError, version
 
+from .audit import StabilityReport, audit
 from .plotting import plot_ambiguity, plot_discrepancy, plot_vic
 from .rashomon_set import RashomonSet
 
 try:
     __version__ = version("rashomon-py")
 except PackageNotFoundError:
-    __version__ = "0.1.0"
+    __version__ = "0.2.0"
 
 __all__ = [
-    # Core class
+    # One-call audit
+    "audit",
+    "StabilityReport",
+    # Expert API
     "RashomonSet",
     # Plotting helpers
     "plot_vic",
