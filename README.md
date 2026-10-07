@@ -39,7 +39,7 @@ Coefficients (exact range across all equally-good models)
 Sign stable: 1 of 10 features.
 ```
 
-![audit plot](docs/_static/audit_breast_cancer.png)
+![audit plot](https://raw.githubusercontent.com/fxcawley/StableGLM/main/docs/_static/audit_breast_cancer.png)
 
 The model is 95% accurate, yet one in seven diagnoses would be reversed by some model that cross-validation cannot distinguish from it, and only *texture* has a coefficient whose sign every such model agrees on. Radius, perimeter and area are near-duplicates: the data pins down their combined effect, not how to split it between them. That is the kind of claim ("tumour radius lowers the odds") this tool exists to catch before it is published.
 
@@ -51,7 +51,7 @@ pip install rashomon-py          # Python 3.9+; depends on numpy, scipy, scikit-
 
 ## Isn't this just a confidence interval?
 
-No, and the difference matters. A confidence interval or bootstrap answers: *if I drew a new sample from the population, how much would my estimate move?* rashomon-py answers: *on the data I actually have, how many different models fit about equally well, and do they agree with mine?* The first is sampling uncertainty; the second is **model multiplicity** (Breiman's "Rashomon effect"). A coefficient can have a tight confidence interval and still change sign across equally-good models when features are collinear, because the collinear directions are exactly the ones the loss barely sees. See [Bootstrap, Rashomon, and Bayesian intervals](docs/guide/why_not_bootstrap.md) for a worked comparison.
+No, and the difference matters. A confidence interval or bootstrap answers: *if I drew a new sample from the population, how much would my estimate move?* rashomon-py answers: *on the data I actually have, how many different models fit about equally well, and do they agree with mine?* The first is sampling uncertainty; the second is **model multiplicity** (Breiman's "Rashomon effect"). A coefficient can have a tight confidence interval and still change sign across equally-good models when features are collinear, because the collinear directions are exactly the ones the loss barely sees. See [Bootstrap, Rashomon, and Bayesian intervals](https://fxcawley.github.io/StableGLM/guide/why_not_bootstrap.html) for a worked comparison.
 
 ## What "equally good" means
 
@@ -64,7 +64,7 @@ Everything depends on the tolerance: how much worse than optimal a model may be 
 | `"lr"` / `("lr", 0.05)` | the models not rejected by a likelihood-ratio test at level α | unpenalized fits, statistical framing |
 | `("absolute", 0.002)` | an explicit loss gap in training-loss units | reproducing a published setting |
 
-The CV default is deliberately permissive — it reflects what your data can actually distinguish — so expect larger sets than with a 1% rule. Reporting results at two or three tolerances is more informative than any single one; see [Choosing the tolerance](docs/guide/choosing_epsilon.md).
+The CV default is deliberately permissive — it reflects what your data can actually distinguish — so expect larger sets than with a 1% rule. Reporting results at two or three tolerances is more informative than any single one; see [Choosing the tolerance](https://fxcawley.github.io/StableGLM/guide/choosing_epsilon.html).
 
 ## What you get, and what it is called in the literature
 
@@ -101,15 +101,15 @@ rs.sample_hitandrun(2000, ellipsoid_mix=0.5)
 
 ## Documentation
 
-- [Quickstart](docs/guide/quickstart.md)
-- [When to use this](docs/guide/when_to_use.md)
-- [Choosing the tolerance](docs/guide/choosing_epsilon.md)
-- [Interpreting instability](docs/guide/interpreting_instability.md)
-- [Bootstrap, Rashomon, and Bayesian intervals](docs/guide/why_not_bootstrap.md)
-- [Ellipsoid approximation vs sampling](docs/guide/certificates_vs_sampling.md)
-- [Tutorial: when equally-good models disagree](docs/examples/tutorial.md)
-- [Evaluation on real datasets](docs/evaluation.md)
-- [API reference](docs/api/reference.rst)
+- [Quickstart](https://fxcawley.github.io/StableGLM/guide/quickstart.html)
+- [When to use this](https://fxcawley.github.io/StableGLM/guide/when_to_use.html)
+- [Choosing the tolerance](https://fxcawley.github.io/StableGLM/guide/choosing_epsilon.html)
+- [Interpreting instability](https://fxcawley.github.io/StableGLM/guide/interpreting_instability.html)
+- [Bootstrap, Rashomon, and Bayesian intervals](https://fxcawley.github.io/StableGLM/guide/why_not_bootstrap.html)
+- [Ellipsoid approximation vs sampling](https://fxcawley.github.io/StableGLM/guide/certificates_vs_sampling.html)
+- [Tutorial: when equally-good models disagree](https://fxcawley.github.io/StableGLM/examples/tutorial.html)
+- [Evaluation on real datasets](https://fxcawley.github.io/StableGLM/evaluation.html)
+- [API reference](https://fxcawley.github.io/StableGLM/api/reference.html)
 
 ## References
 
