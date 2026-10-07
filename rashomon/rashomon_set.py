@@ -2014,13 +2014,16 @@ class RashomonSet:
         thin: int = 2,
         check_collinearity: bool = True,
         random_state: Optional[int] = None,
+        metric: str = "score",
     ) -> Dict[str, Any]:
-        """Model Class Reliance (MCR) with correlation-aware permutations.
+        """Permutation importance across sampled models (model class reliance).
 
         Computes feature importance by measuring performance degradation under
-        permutation across the Rashomon set. Returns both the mean/std of
-        importance (sampling estimate) and the min/max importance bounds
-        (MCR intervals per Fisher, Rudin, Dominici 2019).
+        permutation for each of ``n_samples`` models drawn from the Rashomon set.
+        ``mcr_min`` / ``mcr_max`` are the extremes over those *sampled* models. They
+        are an inner approximation of the model class reliance interval of Fisher,
+        Rudin & Dominici (2019): the true range over the whole set can only be wider,
+        and the approximation tightens as ``n_samples`` grows.
 
         Parameters
         ----------
@@ -2037,6 +2040,12 @@ class RashomonSet:
             - "iid": independent permutation (baseline)
             - "residual": permute partial residuals (correlation-aware)
             - "conditional": permute within bins of correlated features
+        metric : {"score", "loss_ratio"}
+            - "score" (default): importance is the drop in accuracy (logistic) or
+              R² (linear) under permutation.
+            - "loss_ratio": importance is the Fisher–Rudin–Dominici reliance
+              ``loss(permuted) / loss(original)`` with log-loss (logistic) or MSE
+              (linear); 1 means the feature is not used.
         sampler : Optional[str]
             Sampler to use ("ellipsoid" or "hitandrun"). Defaults to
             self.sampler. Using "hitandrun" ensures all samples are
@@ -2055,11 +2064,15 @@ class RashomonSet:
         dict with keys:
             - 'feature_importance': array (d,) - mean importance across samples
             - 'importance_std': array (d,) - std across samples
-            - 'mcr_min': array (d,) - min importance across samples (MCR-)
-            - 'mcr_max': array (d,) - max importance across samples (MCR+)
+            - 'mcr_min': array (d,) - min importance across the sampled models
+            - 'mcr_max': array (d,) - max importance across the sampled models
             - 'importance_matrix': array (n_samples, d) - per-sample importances
-            - 'base_score': float - baseline score at theta_hat
+            - 'base_score': float - baseline score (or loss) at theta_hat
+            - 'metric': str - the metric used
             - 'collinearity_warning': Optional[list] - correlated feature pairs
+
+        Coordinates follow the internal layout: with ``fit_intercept=True`` the
+        intercept is column 0 and is never permuted (importance 0 / ratio 1).
 
         References
         ----------
@@ -2109,28 +2122,42 @@ class RashomonSet:
         else:
             raise ValueError(f"Unknown sampler: {backend}")
 
+        if metric not in ("score", "loss_ratio"):
+            raise ValueError("metric must be 'score' or 'loss_ratio'")
+
         # Pre-compute ss_tot for linear models (used across all samples)
         y_mean = float(np.mean(y))
         ss_tot = float(np.sum((y - y_mean) ** 2))
 
+        def evaluate(Xm: Array, theta: Array) -> float:
+            """Score (accuracy / R²) or loss (log-loss / MSE) of theta on Xm."""
+            scores = Xm @ theta
+            if metric == "loss_ratio":
+                if self.estimator == "logistic":
+                    return float(np.mean(np.logaddexp(0.0, scores) - y * scores))
+                return float(np.mean((y - scores) ** 2))
+            if self.estimator == "logistic":
+                return float(np.mean(((scores > 0.0).astype(int) == y.astype(int)).astype(float)))
+            ss_res = float(np.sum((y - scores) ** 2))
+            return 1.0 - ss_res / ss_tot if ss_tot > 0 else 1.0
+
+        def importance(base: float, permuted: float) -> float:
+            if metric == "loss_ratio":
+                return permuted / base if base > 0 else 1.0
+            return base - permuted
+
         # Compute importance for each sampled parameter
+        first_feature = 1 if self.fit_intercept else 0  # never permute the intercept column
         importance_matrix = np.zeros((n_samples, self._d), dtype=float)
+        if metric == "loss_ratio" and self.fit_intercept:
+            importance_matrix[:, 0] = 1.0
 
         for s_idx in range(n_samples):
             theta_s = samples[s_idx]
-
-            # Base score with this parameter
-            if self.estimator == "logistic":
-                scores = X @ theta_s
-                preds = (scores > 0.0).astype(int)
-                base = float(np.mean((preds == y.astype(int)).astype(float)))
-            else:
-                preds = X @ theta_s
-                ss_res = float(np.sum((y - preds) ** 2))
-                base = 1.0 - ss_res / ss_tot if ss_tot > 0 else 1.0
+            base = evaluate(X, theta_s)
 
             # Permutation importance for each feature
-            for j in range(self._d):
+            for j in range(first_feature, self._d):
                 perm_scores = np.zeros(n_permutations, dtype=float)
 
                 for p in range(n_permutations):
@@ -2171,35 +2198,17 @@ class RashomonSet:
                     else:
                         raise ValueError(f"Unknown perm_mode: {perm_mode}")
 
-                    # Score with permuted feature
-                    if self.estimator == "logistic":
-                        scores_p = Xp @ theta_s
-                        preds_p = (scores_p > 0.0).astype(int)
-                        score_p = float(np.mean((preds_p == y.astype(int)).astype(float)))
-                    else:
-                        preds_p = Xp @ theta_s
-                        ss_res_p = float(np.sum((y - preds_p) ** 2))
-                        score_p = 1.0 - ss_res_p / ss_tot if ss_tot > 0 else 1.0
+                    perm_scores[p] = evaluate(Xp, theta_s)
 
-                    perm_scores[p] = score_p
+                importance_matrix[s_idx, j] = importance(base, float(np.mean(perm_scores)))
 
-                importance_matrix[s_idx, j] = base - np.mean(perm_scores)
-
-        # Aggregate: mean/std (sampling estimate) + min/max (MCR bounds)
+        # Aggregate: mean/std (sampling estimate) + min/max over the sampled models
         mean_importance = np.mean(importance_matrix, axis=0)
         std_importance = np.std(importance_matrix, axis=0)
         mcr_min = np.min(importance_matrix, axis=0)
         mcr_max = np.max(importance_matrix, axis=0)
-
-        # Compute base score on original parameter (using already-augmented X)
-        if self.estimator == "logistic":
-            y_pred = (X @ self._theta_hat > 0.0).astype(int)
-            base_score = float(np.mean((y_pred == y.astype(int)).astype(float)))
-        else:
-            y_pred = X @ self._theta_hat
-            ss_res_base = float(np.sum((y - y_pred) ** 2))
-            ss_tot_base = float(np.sum((y - np.mean(y)) ** 2))
-            base_score = 1.0 - ss_res_base / ss_tot_base if ss_tot_base > 0 else 1.0
+        assert self._theta_hat is not None
+        base_score = evaluate(X, self._theta_hat)
 
         return {
             "feature_importance": mean_importance,
@@ -2208,6 +2217,7 @@ class RashomonSet:
             "mcr_max": mcr_max,
             "importance_matrix": importance_matrix,
             "base_score": base_score,
+            "metric": metric,
             "collinearity_warning": collinear_pairs if collinear_pairs else None,
         }
 
