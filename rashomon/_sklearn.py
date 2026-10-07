@@ -10,7 +10,7 @@ objectives differently:
   ``0.5 * mean_i (y_i - x_i w - b)^2 + (alpha / (2n)) ||w||^2``, so ``lambda = alpha / n``.
 * ``LinearRegression`` and unpenalized ``LogisticRegression`` correspond to ``lambda = 0``.
 
-Everything here is internal; the public entry points are :func:`rashomon.audit` and
+This module is internal. The public entry points are :func:`rashomon.audit` and
 :meth:`rashomon.RashomonSet.from_sklearn`.
 """
 

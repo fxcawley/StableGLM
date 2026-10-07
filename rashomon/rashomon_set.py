@@ -411,9 +411,9 @@ class RashomonSet:
         kappa_H = self._estimate_hessian_condition_number()
         w_min = float(np.min(self._w_diag)) if self._w_diag is not None else 1.0
 
-        # A few confidently classified points (tiny p(1-p)) are harmless when lambda > 0:
-        # the objective stays strongly convex and the Rashomon set bounded. Without a
-        # penalty, (quasi-)separation means the MLE does not exist, so we refuse.
+        # With lambda > 0 the objective is strongly convex and the set bounded, so points
+        # with tiny p(1-p) are fine. Without a penalty, (quasi-)separation means the MLE
+        # does not exist, so the fit is rejected.
         if self.estimator == "logistic" and lam == 0.0 and w_min < 1e-6 and not self.safety_override:
             raise RuntimeError(
                 "Near-separation detected in an unpenalized logistic fit (min p(1-p) too small); "
@@ -811,14 +811,14 @@ class RashomonSet:
             Probability, at each step, of replacing the hit-and-run move by an
             independence proposal drawn uniformly from the Hessian ellipsoid
             ``(θ-θ̂)ᵀH(θ-θ̂) ≤ 2ε``. The proposal is accepted iff it lies in the
-            Rashomon set and the current point lies in the ellipsoid, which is the
-            exact Metropolis–Hastings ratio for a uniform target; the chain therefore
-            still targets the uniform law on the true set. Because the ellipsoid is
-            a close approximation of the set in low to moderate dimension, these
-            proposals are mostly accepted and the effective sample size per step
-            improves by roughly a factor of d over pure hit-and-run. In high
-            dimension proposals are rarely accepted and the chain degrades
-            gracefully to pure hit-and-run. Default 0 (pure hit-and-run).
+            Rashomon set and the current point lies in the ellipsoid. This is the
+            Metropolis-Hastings ratio for a uniform target, so the chain still
+            targets the uniform law on the true set. In low to moderate dimension
+            most of the ellipsoid lies inside the set, most proposals are accepted,
+            and the effective sample size per step improves by about a factor of d
+            over plain hit-and-run. In high dimension proposals are rarely accepted
+            and the chain behaves like plain hit-and-run. Default 0 (plain
+            hit-and-run).
         """
 
         if not self._fitted or self._theta_hat is None:
@@ -1082,9 +1082,9 @@ class RashomonSet:
         """Minimize mean logistic loss + (λ/2) θᵀ diag(mask) θ.
 
         scikit-learn's L-BFGS is used as an initializer when available (and no
-        warm start is given); the solution is then polished with damped Newton
-        steps on the exact objective so that ``theta_hat`` is its true minimizer,
-        not an L-BFGS iterate stopped at sklearn's default tolerance.
+        warm start is given). The solution is then polished with damped Newton
+        steps on the exact objective, so ``theta_hat`` is the minimizer rather than
+        an L-BFGS iterate stopped at sklearn's default tolerance.
         """
         n, d = X.shape
         m = np.ones(d, dtype=float) if mask is None else mask
@@ -1167,13 +1167,13 @@ class RashomonSet:
     def functional_range(self, s: Array) -> Tuple[float, float]:
         """Exact ``(min, max)`` of the linear functional ``sᵀθ`` over the ε-Rashomon set.
 
-        Unlike :meth:`hacking_interval` (which uses the Hessian ellipsoid) and unlike
-        sampled extremes (which can only understate the range), this solves the convex
-        program ``max sᵀθ  s.t.  L(θ) ≤ L(θ̂) + ε`` exactly. For linear models the set
-        *is* the ellipsoid, so the closed form is returned. For logistic models the
+        Solves the convex program ``max sᵀθ  s.t.  L(θ) ≤ L(θ̂) + ε`` (and the
+        corresponding min). :meth:`hacking_interval` uses the Hessian ellipsoid
+        instead, and sampled extremes understate the range. For linear models the
+        set is the ellipsoid, so the closed form is returned. For logistic models the
         maximizer is ``θ(μ) = argmin L(θ) - μ sᵀθ`` for the unique ``μ > 0`` at which
         ``L(θ(μ)) = L(θ̂) + ε``; ``μ`` is found by safeguarded root finding with
-        warm-started Newton solves, so the cost is a few dozen Hessian builds.
+        warm-started Newton solves. The cost is a few dozen Hessian builds.
         """
         if not self._fitted or self._theta_hat is None or self._epsilon_value is None or self._L_hat is None:
             raise RuntimeError("Call fit() first.")

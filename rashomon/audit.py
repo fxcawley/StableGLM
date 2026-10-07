@@ -5,11 +5,10 @@
     print(report.summary())
     report.plot()
 
-The audit asks one question about a model you have already fitted: *would an
-equally good model have told you something different?* "Equally good" means a
-training loss within a tolerance of the optimum (the ε-Rashomon set); the report
-translates the set into decision language -- which predictions can flip, how far
-coefficients can move, which signs are stable.
+The audit asks one question about a fitted model: would an equally good model
+have given a different answer? "Equally good" means a training loss within a
+tolerance of the optimum (the ε-Rashomon set). The report says which predictions
+can flip, how far coefficients can move, and which signs are stable.
 """
 
 from __future__ import annotations
@@ -48,17 +47,16 @@ _ESS_FAIR = 30.0
 class StabilityReport:
     """Result of :func:`audit`.
 
-    Attributes are plain-language; the corresponding literature terms are given in
-    brackets so results can be cross-referenced with the papers.
+    The term used for each quantity in the literature is given in brackets.
 
     Attributes
     ----------
     flip_rate : float or None
-        Fraction of rows whose predicted label changes under *some* equally-good
+        Fraction of rows whose predicted label changes under some equally-good
         model [ambiguity, Marx, Calmon & Ustun 2020]. ``None`` for regression
         without a ``threshold``.
     flipped : ndarray of bool, shape (n,)
-        Row mask of those predictions; join it back to your DataFrame.
+        Row mask of those predictions.
     max_disagreement : float or None
         Largest fraction of rows on which a single equally-good model disagrees with
         your model [discrepancy, Marx et al. 2020]. Always ``<= flip_rate``.
@@ -74,13 +72,13 @@ class StabilityReport:
     tolerance : float
         The loss gap defining "equally good", in the units of the training loss.
     ess_min, reliability : float, str
-        Minimum effective sample size across coefficients and its plain-language
-        label (``reliable`` / ``fair`` / ``unreliable``).
+        Minimum effective sample size across coefficients and its label
+        (``reliable`` / ``fair`` / ``unreliable``).
 
     Quantities computed over sampled models (flip rate, disagreement, prediction
-    ranges, and coefficient ranges when not exact) can only *understate* the truth,
-    because every sampled model really is in the set but the set is not exhausted.
-    Increase ``n_samples`` to tighten them.
+    ranges, and coefficient ranges when not exact) are lower bounds: every sampled
+    model is in the set, but the set is not exhausted. Increase ``n_samples`` to
+    tighten them.
     """
 
     model_name: str
@@ -148,10 +146,10 @@ class StabilityReport:
 
     # --------------------------------------------------------------- output
     def summary(self) -> str:
-        """Plain-language summary. ``print(report.summary())`` or just ``report``."""
+        """Text summary. ``print(report.summary())`` or just ``report``."""
         w = 44
         lines = [
-            f"Stability audit -- {self.model_name} ({self.task}), n={self.n:,}, {self.n_features} features",
+            f"Stability audit: {self.model_name} ({self.task}), n={self.n:,}, {self.n_features} features",
             f"Equally-good models: training {self.loss_name} within {self.tolerance:.4g} of the optimum {self.loss_optimum:.4g}",
             f"  ({self.tolerance_description})",
             f"Method: {self.method}; {self.n_models:,} models"
@@ -160,7 +158,7 @@ class StabilityReport:
         ]
         if self.flip_rate is not None:
             lines += [
-                "Predictions (over the sampled models; true values can only be higher)",
+                "Predictions (over the sampled models; lower bounds)",
                 f"  {'Flip under some equally-good model:':<{w}}{self.flip_rate:7.1%}  ({self.n_flipped:,} of {self.n:,})",
                 f"  {'Worst single-model disagreement with yours:':<{w}}{self.max_disagreement:7.1%}",
                 "",
@@ -174,7 +172,7 @@ class StabilityReport:
         if self.coefficient_ranges == "exact":
             lines.append("Coefficients (exact range across all equally-good models)")
         else:
-            lines.append("Coefficients (range across the sampled models; true range can only be wider)")
+            lines.append("Coefficients (range over the sampled models; lower bound on the true range)")
         name_w = max(8, min(32, max(len(str(i)) for i in coef.index)))
         lines.append(f"  {'feature':<{name_w}} {'estimate':>10} {'low':>10} {'high':>10}  sign")
         for name, row in coef.iterrows():
@@ -255,26 +253,26 @@ def audit(
     model : fitted estimator
         ``LogisticRegression`` / ``LogisticRegressionCV`` (binary, L2 or unpenalized),
         ``Ridge`` / ``RidgeCV``, ``LinearRegression``, or a ``Pipeline`` ending in one
-        of these (the preprocessing steps are applied to ``X`` for you).
+        of these (the preprocessing steps are applied to ``X``).
     X, y : array-like or pandas
         The training data the model was fitted on. Feature names are taken from
-        ``X.columns`` / the pipeline when available.
+        ``X.columns`` or the pipeline when available.
     tolerance : "cv" | float | "lr" | ("lr", alpha) | ("absolute", gap), default "cv"
         What "equally good" means:
 
-        * ``"cv"`` -- a training-loss gap of one cross-validation standard error of
-          the held-out loss (the one-standard-error rule familiar from glmnet).
-          Data-driven; costs ``cv`` extra fits of your model.
-        * a float ``r`` in (0, 1) -- a loss gap of ``r`` times the optimal training loss
-          (``0.01`` = "models at most 1% worse").
-        * ``"lr"`` / ``("lr", alpha)`` -- likelihood-ratio calibration: the set of
+        * ``"cv"``: a training-loss gap of one cross-validation standard error of
+          the held-out loss (the one-standard-error rule from glmnet). Costs ``cv``
+          extra fits of the model.
+        * a float ``r`` in (0, 1): a loss gap of ``r`` times the optimal training loss
+          (``0.01`` means models at most 1% worse).
+        * ``"lr"`` / ``("lr", alpha)``: likelihood-ratio calibration, the set of
           models not rejected at level ``alpha`` (default 0.05). Exact for unpenalized
-          fits, heuristic under regularization.
-        * ``("absolute", gap)`` -- an explicit loss gap in training-loss units.
+          fits, a heuristic under regularization.
+        * ``("absolute", gap)``: a loss gap in training-loss units.
     threshold : float, None or "auto", default "auto"
         Decision threshold on the predicted probability (classification; ``"auto"``
         means 0.5, as in ``model.predict``) or on the fitted value (regression;
-        ``"auto"`` means ``None``, i.e. no flip analysis unless you supply a cutoff).
+        ``"auto"`` means ``None``, i.e. no flip analysis unless a cutoff is given).
     n_samples : int, default 1000
         Number of equally-good models to sample. More samples tighten ranges and
         raise the effective sample size.
@@ -282,14 +280,14 @@ def audit(
         Folds used by ``tolerance="cv"``.
     method : "auto" | "sample" | "ellipsoid", default "auto"
         ``"sample"`` (what ``"auto"`` chooses) draws from the exact set with a
-        hit-and-run chain accelerated by ellipsoid proposals. ``"ellipsoid"`` draws
-        i.i.d. from the Hessian ellipsoid and keeps only draws that are truly in the
-        set -- fast, but it cannot reach parts of the set outside the ellipsoid.
+        hit-and-run chain plus ellipsoid proposals. ``"ellipsoid"`` draws i.i.d. from
+        the Hessian ellipsoid and keeps the draws that are in the set; faster, but it
+        cannot reach parts of the set outside the ellipsoid.
     exact_ranges : bool or "auto", default "auto"
-        Compute coefficient ranges (and hence ``sign_stable``) exactly by convex
-        optimization over the true set instead of from the sampled models. Costs a
-        few dozen Hessian builds per coefficient; ``"auto"`` does it whenever
-        ``n * n_features**2 <= 5e6`` (a few seconds at most).
+        Compute coefficient ranges (and so ``sign_stable``) by convex optimization
+        over the true set instead of from the sampled models. Costs a few dozen
+        Hessian builds per coefficient; ``"auto"`` does it whenever
+        ``n * n_features**2 <= 5e6``.
     random_state : int, optional
     feature_names : sequence of str, optional
         Overrides inferred names.
@@ -336,22 +334,22 @@ def audit(
     assert rs._theta_hat is not None and rs._epsilon_value is not None and rs._L_hat is not None
     eps = float(rs._epsilon_value)
 
-    # Did we reconstruct *their* model? Their coefficients should sit at our optimum.
+    # The fitted coefficients should sit at the optimum of the reconstructed objective.
     coef_diff = float(np.max(np.abs(spec.theta - rs._theta_hat)))
     user_gap = float(rs.objective(spec.theta) - rs._L_hat)
     if user_gap > eps:
         warnings.warn(
             f"The fitted model's coefficients are outside the reconstructed Rashomon set (loss gap "
-            f"{user_gap:.3g} > tolerance {eps:.3g}). The training objective was probably not reproduced "
-            "exactly (sample weights? a non-converged solver?). The audit is centred on the exact optimum "
-            "of the reconstructed objective instead.",
+            f"{user_gap:.3g} > tolerance {eps:.3g}). The training objective was not reproduced; possible "
+            "causes are sample weights or a solver that did not converge. The audit is centred on the "
+            "optimum of the reconstructed objective.",
             stacklevel=2,
         )
-        notes.append("your model's coefficients lie outside the audited set; see warning")
+        notes.append("the model's coefficients lie outside the audited set; see warning")
     elif user_gap > 0.1 * eps:
         notes.append(
-            f"your model's coefficients are {user_gap / eps:.0%} of the tolerance away from the exact optimum "
-            "(solver tolerance); the audit is centred on the exact optimum"
+            f"the model's coefficients are {user_gap / eps:.0%} of the tolerance away from the optimum "
+            "(solver tolerance); the audit is centred on the optimum"
         )
 
     # Sample equally-good models.

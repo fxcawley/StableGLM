@@ -1,7 +1,7 @@
 name: Publish to PyPI
 
-# Manual, deliberate step. Uses PyPI trusted publishing (OIDC), so no API token
-# is stored anywhere; PyPI must be told to trust this workflow first:
+# Manual step. Uses PyPI trusted publishing (OIDC), so no API token is stored;
+# PyPI must be configured to trust this workflow first:
 #   https://pypi.org/manage/account/publishing/
 #   owner fxcawley, repository StableGLM, workflow publish-pypi.yml, environment pypi
 # Then run this workflow with the release tag (e.g. v0.2.0).

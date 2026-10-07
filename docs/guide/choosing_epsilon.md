@@ -8,9 +8,9 @@ The parameter $\varepsilon$ (the `tolerance` argument of `audit()`) controls the
 report = audit(model, X, y)                 # tolerance="cv"
 ```
 
-`audit()` refits a clone of your model on `cv` folds, records the held-out loss of each fold, and sets $\varepsilon$ to the standard error of the mean held-out loss. Two models whose training losses differ by less than this amount could not be told apart by cross-validation on your data, so it is a defensible, data-driven meaning of "equally good" -- the same reasoning behind the one-standard-error rule used to pick the regularization strength in glmnet.
+`audit()` refits a clone of your model on `cv` folds, records the held-out loss of each fold, and sets $\varepsilon$ to the standard error of the mean held-out loss. Two models whose training losses differ by less than this could not be told apart by cross-validation on your data. This is the same reasoning as the one-standard-error rule used to pick the regularization strength in glmnet.
 
-Two properties to keep in mind. First, it is deliberately permissive: the standard error of a mean loss scales like $\sigma_{\text{loss}}/\sqrt{n}$, which on small datasets can be 10% or more of the loss itself, so sets are larger than under a 1% rule. Second, it is applied to the training objective of a *fixed* dataset, so it is a calibration heuristic, not a hypothesis test. The report always prints the resulting $\varepsilon$ alongside the optimal loss so the choice is visible.
+Two things to keep in mind. The standard error of a mean loss scales like $\sigma_{\text{loss}}/\sqrt{n}$, which on small datasets can be 10% or more of the loss itself, so sets are larger than under a 1% rule. And the rule is applied to the training objective on a fixed dataset, so it is a calibration heuristic, not a hypothesis test. The report prints the resulting $\varepsilon$ next to the optimal loss.
 
 The other `tolerance` forms map onto the calibration modes below: a float is `percent_loss`, `"lr"` / `("lr", alpha)` is `LR_alpha`, and `("absolute", gap)` is `absolute`.
 

@@ -7,17 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.0] - 2026-10-07
 
-Repositioned around a single question -- *does your conclusion survive every
-equally-good model?* -- asked of the scikit-learn model you already have.
+The package is now built around one question, asked of a fitted scikit-learn
+model: does your conclusion survive every equally-good model?
 
 ### Added
 
 - `rashomon.audit(model, X, y)`: one-call audit of a fitted `LogisticRegression` /
   `LogisticRegressionCV` (binary, L2 or unpenalized), `Ridge` / `RidgeCV`,
   `LinearRegression`, or a `Pipeline` ending in one of these. Accepts pandas input and
-  infers feature names. Returns a `StabilityReport` with plain-language fields
-  (`flip_rate`, `flipped`, `max_disagreement`, `coefficients` with `sign_stable`,
-  `prediction_ranges`, `predict_ranges(X_new)`), `summary()` and `plot()`.
+  infers feature names. Returns a `StabilityReport` with `flip_rate`, `flipped`,
+  `max_disagreement`, `coefficients` (with `sign_stable`), `prediction_ranges`,
+  `predict_ranges(X_new)`, `summary()` and `plot()`.
 - Default tolerance `"cv"`: one standard error of the cross-validated loss (the
   one-standard-error rule). Also `float` (relative loss), `"lr"` / `("lr", alpha)` and
   `("absolute", gap)`.
@@ -30,40 +30,39 @@ equally-good model?* -- asked of the scikit-learn model you already have.
   Newton solves for logistic). `audit()` uses them for coefficient ranges and sign
   stability whenever `n · d² ≤ 5e6`.
 - `sample_hitandrun(..., ellipsoid_mix=p)`: independence proposals from the Hessian
-  ellipsoid, accepted with the exact Metropolis–Hastings rule for a uniform target.
-  Raises the effective sample size per step by roughly a factor of d in low to
-  moderate dimension while still sampling the exact set.
+  ellipsoid, accepted with the Metropolis-Hastings rule for a uniform target. Raises
+  the effective sample size per step by about a factor of d in low to moderate
+  dimension; the chain still samples the exact set.
 - `RashomonSet(penalize_intercept=...)` (default `False`, the scikit-learn
   convention), `C=np.inf` for unpenalized fits (λ = 0), `epsilon_mode="absolute"`,
   and `fit(..., theta_init=...)` warm starts.
-- Damped-Newton polishing of the fitted optimum, so `theta_hat` is the true minimizer
-  of the stated objective rather than an L-BFGS iterate stopped at solver tolerance.
+- Damped-Newton polishing of the fitted optimum, so `theta_hat` is the minimizer of
+  the stated objective rather than an L-BFGS iterate stopped at solver tolerance.
 
 ### Fixed
 
-- **Ellipsoid sampler orientation.** `sample_ellipsoid` mapped ball samples with
-  `L⁻¹` instead of `L⁻ᵀ` (where `H = LLᵀ`), producing samples from an ellipsoid with
-  the right size but the wrong orientation; only ~30% of "ellipsoid" draws lay in the
-  Hessian ellipsoid or in the Rashomon set. Every quantity in 0.1.0 computed from
-  ellipsoid samples (VIC with the default sampler, MCR, the quoted "set fidelity"
-  figures) was affected. Hit-and-run samples and the closed-form ellipsoid intervals
-  were not.
-- The near-separation guard no longer rejects ordinary penalized fits with a few
-  confidently classified points; it applies only to unpenalized fits, where
-  separation means the optimum does not exist.
+- Ellipsoid sampler orientation. `sample_ellipsoid` mapped ball samples with `L⁻¹`
+  instead of `L⁻ᵀ` (where `H = LLᵀ`), which gives an ellipsoid with the right size but
+  the wrong orientation; only about 30% of the draws lay in the Hessian ellipsoid or in
+  the Rashomon set. Every quantity in 0.1.0 computed from ellipsoid samples (VIC with
+  the default sampler, MCR, the quoted set-fidelity figures) was affected. Hit-and-run
+  samples and the closed-form ellipsoid intervals were not.
+- The near-separation guard no longer rejects penalized fits with a few confidently
+  classified points. It applies only to unpenalized fits, where separation means the
+  optimum does not exist.
 - Refitting a `RashomonSet` now resets the cached Hessian, Cholesky factor and
   preconditioner.
 - `get_params()` now includes `fit_intercept`.
-- The `C` docstring claimed scikit-learn semantics; `RashomonSet.C` is `1/λ` for the
-  mean-loss objective, i.e. scikit-learn's `C` times `n`. Documented, and avoided
-  entirely by `audit` / `from_sklearn`.
+- The `C` docstring claimed scikit-learn semantics. `RashomonSet.C` is `1/λ` for the
+  mean-loss objective, i.e. scikit-learn's `C` times `n`. The docstring now says so,
+  and `audit` / `from_sklearn` do the conversion.
 - Logistic fits now validate that `y` is in {0, 1}.
 
 ### Changed
 
 - With `fit_intercept=True` the intercept is no longer L2-penalized by default
   (`penalize_intercept=False`), matching scikit-learn.
-- `pandas` is a new dependency; project URLs point at the actual repository.
+- `pandas` is a new dependency. Project URLs point at the fxcawley/StableGLM repository.
 
 ## [0.1.0] - 2026-03-16
 

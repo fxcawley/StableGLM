@@ -1,12 +1,12 @@
 # Ellipsoidal approximations, sampling, and exact ranges
 
-The toolkit provides three ways of interrogating the Rashomon set. `audit()` chooses among them for you and labels every number with the method behind it; this page explains the trade-offs.
+The toolkit has three ways to compute quantities over the Rashomon set. `audit()` picks one and labels each number with the method used. This page explains the trade-offs.
 
 ## Exact ranges of linear functionals
 
-For any linear functional $s^\top\theta$ -- a single coefficient ($s = e_j$) or the logit of one row ($s = x_i$) -- the extremes over the *true* set are the solutions of the convex programs $\max / \min \; s^\top\theta$ subject to $L(\theta) \le L(\hat\theta) + \varepsilon$. `RashomonSet.functional_range(s)` solves them exactly: for linear models the set is exactly the Hessian ellipsoid and the closed form applies; for logistic models the maximizer is $\theta(\mu) = \arg\min_\theta L(\theta) - \mu\, s^\top\theta$ for the unique $\mu > 0$ with $L(\theta(\mu)) = L(\hat\theta) + \varepsilon$, found by safeguarded root finding with warm-started Newton solves. The cost is a few dozen Hessian builds per functional.
+For a linear functional $s^\top\theta$ (a single coefficient, $s = e_j$, or the logit of one row, $s = x_i$) the extremes over the true set are the solutions of the convex programs $\max / \min \; s^\top\theta$ subject to $L(\theta) \le L(\hat\theta) + \varepsilon$. `RashomonSet.functional_range(s)` solves them. For linear models the set is the Hessian ellipsoid and the closed form applies. For logistic models the maximizer is $\theta(\mu) = \arg\min_\theta L(\theta) - \mu\, s^\top\theta$ for the unique $\mu > 0$ with $L(\theta(\mu)) = L(\hat\theta) + \varepsilon$; $\mu$ is found by safeguarded root finding with warm-started Newton solves. The cost is a few dozen Hessian builds per functional.
 
-`audit()` uses this for coefficient ranges (and therefore `sign_stable`) whenever $n \cdot d^2 \le 5\cdot10^6$, so those conclusions do not depend on how many models were sampled. Sampled extremes necessarily understate the range -- on the breast-cancer example, 4000 hit-and-run draws recover only 70--85% of the exact coefficient ranges in 11 dimensions.
+`audit()` uses this for coefficient ranges (and so for `sign_stable`) whenever $n \cdot d^2 \le 5\cdot10^6$, so those results do not depend on how many models were sampled. Sampled extremes understate the range: on the breast-cancer example, 4000 hit-and-run draws recover 70 to 85% of the exact coefficient ranges in 11 dimensions.
 
 ## Ellipsoidal approximation
 
@@ -41,9 +41,9 @@ diag = rs.compute_sample_diagnostics(samples)
 print(f"Min ESS: {diag['ess_per_param'].min():.0f}")
 ```
 
-Pure hit-and-run changes the state along one direction per step, so coordinate autocorrelation is roughly $1 - 1/d$ and the ESS per step is of order $1/d$: about 40 effective draws per 1000 steps at $d = 11$. The `ellipsoid_mix` option (used by `audit()`) replaces a fraction of the steps by independence proposals drawn uniformly from the Hessian ellipsoid, accepted exactly when the proposal lies in the set and the current point lies in the ellipsoid -- the Metropolis--Hastings ratio for a uniform target, so the chain still samples the exact set. In low to moderate dimension the ellipsoid is a close inner approximation of the set (over 80% of its volume is inside the set on the breast-cancer example), so most proposals are accepted and the ESS per step improves by roughly a factor of $d$: around 400 effective draws per 1000 steps at $d = 11$. In high dimension proposals are rarely accepted and the chain degrades gracefully to pure hit-and-run.
+Plain hit-and-run moves along one direction per step, so coordinate autocorrelation is about $1 - 1/d$ and the ESS per step is of order $1/d$: about 40 effective draws per 1000 steps at $d = 11$. The `ellipsoid_mix` option (used by `audit()`) replaces a fraction of the steps with independence proposals drawn uniformly from the Hessian ellipsoid. A proposal is accepted when it lies in the set and the current point lies in the ellipsoid. That is the Metropolis-Hastings ratio for a uniform target, so the chain still samples the exact set. In low to moderate dimension most of the ellipsoid lies inside the set (over 80% of its volume on the breast-cancer example), so most proposals are accepted and the ESS per step improves by about a factor of $d$: around 400 effective draws per 1000 steps at $d = 11$. In high dimension proposals are rarely accepted and the chain behaves like plain hit-and-run.
 
-`audit()` labels the result: min ESS above 100 is "reliable", 30--100 "fair", below 30 "unreliable". At $d = 104$ with 500 pure hit-and-run samples, ESS is in the single digits and the sampled quantities should not be trusted; exact coefficient ranges remain valid there.
+`audit()` labels the result: min ESS above 100 is "reliable", 30 to 100 "fair", below 30 "unreliable". At $d = 104$ with 500 plain hit-and-run samples, ESS is in the single digits and the sampled quantities should not be trusted. Exact coefficient ranges remain valid there.
 
 ## Practical guidance
 

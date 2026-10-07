@@ -28,9 +28,9 @@ report.plot()
 
 Three things to look at:
 
-1. **Flip rate.** `report.flip_rate` is the share of rows for which *some* equally-good model predicts the other label. `report.flipped` is the row mask; `X[report.flipped]` shows you who they are.
-2. **Sign stability.** `report.coefficients` lists each coefficient's exact range across all equally-good models. `sign_stable=False` means you cannot claim the direction of that effect from this data and model class.
-3. **Reliability.** The header line reports the effective sample size of the sampler. "reliable" means the prediction-level numbers are trustworthy; otherwise increase `n_samples`.
+1. **Flip rate.** `report.flip_rate` is the share of rows for which some equally-good model predicts the other label. `report.flipped` is the row mask, so `X[report.flipped]` selects those rows.
+2. **Sign stability.** `report.coefficients` lists each coefficient's range across all equally-good models. `sign_stable=False` means the direction of that effect is not determined by this data and model class.
+3. **Reliability.** The header line reports the sampler's effective sample size. If it is not labelled "reliable", increase `n_samples`.
 
 New rows go through the same pipeline:
 
@@ -69,7 +69,7 @@ samples = rs.sample_hitandrun(2000, ellipsoid_mix=0.5)
 
 ## What to read next
 
-- {doc}`when_to_use`: the question this answers, and the questions it does not
+- {doc}`when_to_use`: what this answers and what it does not
 - {doc}`concepts`: the ε-Rashomon set and the quantities computed over it
 - {doc}`../examples/tutorial`: a full case study
-- {doc}`../api/reference`: complete API documentation
+- {doc}`../api/reference`: API documentation

@@ -1,8 +1,8 @@
 """rashomon-py: does your conclusion survive every equally-good model?
 
-Audit a fitted scikit-learn linear model for *model multiplicity*: whether the
-predictions, coefficient signs and feature rankings you are about to report would
-change under a different model that fits the training data essentially as well.
+Audit a fitted scikit-learn linear model for model multiplicity: whether its
+predictions, coefficient signs and feature rankings would change under a different
+model that fits the training data about as well.
 
 Quick start::
 
@@ -18,9 +18,9 @@ Public API (v0.2)
 -----------------
 ``audit`` / ``StabilityReport``
     One-call audit of a fitted ``LogisticRegression``, ``Ridge``, ``LinearRegression``
-    (or a ``Pipeline`` ending in one). Plain-language outputs.
+    (or a ``Pipeline`` ending in one).
 ``RashomonSet``
-    Expert API: define, sample and interrogate the ε-Rashomon set directly
+    Lower-level API: define, sample and query the ε-Rashomon set directly
     (``RashomonSet.from_sklearn`` converts a fitted model).
 ``plot_vic`` / ``plot_ambiguity`` / ``plot_discrepancy``
     Plotting helpers for ``RashomonSet`` outputs.
