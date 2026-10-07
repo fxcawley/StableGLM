@@ -695,6 +695,14 @@ class RashomonSet:
             Z = np.linalg.solve(L.T, scaled_vecs.T).T
         return self._theta_hat[None, :] + Z
 
+    def _in_hessian_ellipsoid(self, theta: Array) -> bool:
+        """Whether (θ-θ̂)ᵀ H (θ-θ̂) ≤ 2ε."""
+        if self._theta_hat is None or self._epsilon_value is None:
+            raise RuntimeError("Model not fully initialized.")
+        L = self._hessian_cholesky()
+        w = L.T @ (theta - self._theta_hat)
+        return bool(w @ w <= 2.0 * self._epsilon_value)
+
     def sample_hitandrun(
         self,
         n_samples: int = 100,
@@ -710,10 +718,27 @@ class RashomonSet:
         tol: float = 1e-10,
         random_state: Optional[int] = None,
         compute_diagnostics: bool = True,
+        ellipsoid_mix: float = 0.0,
     ) -> Array:
         """Hit-and-Run sampling using bracketed line search with safeguards.
 
-        Optimized with vectorized operations and diagnostic computation (D15-D18).
+        Targets the uniform distribution on the exact ε-Rashomon set (membership
+        oracle), so samples are not restricted to the Hessian ellipsoid.
+
+        Parameters
+        ----------
+        ellipsoid_mix : float in [0, 1)
+            Probability, at each step, of replacing the hit-and-run move by an
+            independence proposal drawn uniformly from the Hessian ellipsoid
+            ``(θ-θ̂)ᵀH(θ-θ̂) ≤ 2ε``. The proposal is accepted iff it lies in the
+            Rashomon set and the current point lies in the ellipsoid, which is the
+            exact Metropolis–Hastings ratio for a uniform target; the chain therefore
+            still targets the uniform law on the true set. Because the ellipsoid is
+            a close approximation of the set in low to moderate dimension, these
+            proposals are mostly accepted and the effective sample size per step
+            improves by roughly a factor of d over pure hit-and-run. In high
+            dimension proposals are rarely accepted and the chain degrades
+            gracefully to pure hit-and-run. Default 0 (pure hit-and-run).
         """
 
         if not self._fitted or self._theta_hat is None:
@@ -732,6 +757,8 @@ class RashomonSet:
             raise ValueError("growth must be > 1.0")
         if max_bracket <= 0.0:
             raise ValueError("max_bracket must be positive")
+        if not (0.0 <= ellipsoid_mix < 1.0):
+            raise ValueError("ellipsoid_mix must be in [0, 1)")
 
         if directions is None:
             dir_mode = "whitened" if self.measure == "lr" else "euclidean"
@@ -805,14 +832,34 @@ class RashomonSet:
                     break
             return inside_val
 
+        cur_in_ellipsoid = True  # the chain starts at θ̂
+        n_proposals = 0
+        n_accepted = 0
+
         while saved < n_samples:
             if step >= max_steps:
                 raise RuntimeError("Hit-and-Run did not produce enough samples within step cap")
             step += 1
 
+            if ellipsoid_mix > 0.0 and rng.random() < ellipsoid_mix:
+                # Independence proposal from the Hessian ellipsoid (see docstring).
+                n_proposals += 1
+                proposal = self._ellipsoid_points(rng, 1)[0]
+                if cur_in_ellipsoid and oracle.contains(proposal):
+                    theta = proposal
+                    z = self._X @ theta
+                    n_accepted += 1
+                if step > burnin and ((step - burnin) % max(1, thin) == 0):
+                    samples[saved] = theta
+                    saved += 1
+                continue
+
             g = rng.normal(size=self._d)
             if use_precondition:
-                v = self._cg_solve(g, tol=self.tol, max_iter=self.max_iter, precondition=True)
+                # Direction ~ N(0, H^{-1}) via the cached Cholesky factor: v = L^{-T} g.
+                # Any centrally symmetric, full-support direction law keeps the uniform
+                # law stationary; matching the local Hessian geometry improves mixing.
+                v = self._whiten_direction(g)
             else:
                 v = g
             norm_v = float(np.linalg.norm(v))
@@ -836,6 +883,8 @@ class RashomonSet:
             t = float(rng.uniform(t_minus, t_plus))
             theta = theta + t * v
             z = z + t * xv
+            if ellipsoid_mix > 0.0:
+                cur_in_ellipsoid = self._in_hessian_ellipsoid(theta)
 
             if step > burnin and ((step - burnin) % max(1, thin) == 0):
                 samples[saved] = theta
@@ -846,6 +895,11 @@ class RashomonSet:
             self._last_sample_diagnostics = self.compute_sample_diagnostics(
                 samples, burnin=0, compute_ess=True, compute_isotropy=True
             )
+            if ellipsoid_mix > 0.0:
+                self._last_sample_diagnostics["ellipsoid_proposals"] = n_proposals
+                self._last_sample_diagnostics["ellipsoid_acceptance"] = (
+                    n_accepted / n_proposals if n_proposals else None
+                )
 
         return samples
 
@@ -1155,6 +1209,16 @@ class RashomonSet:
             rsold = rsnew
 
         return x
+
+    def _whiten_direction(self, g: Array) -> Array:
+        """Return L^{-T} g where H = L L^T, so that Cov(L^{-T} g) = H^{-1} for g ~ N(0, I)."""
+        try:
+            L = self._hessian_cholesky()
+        except RuntimeError:
+            return self._cg_solve(g, tol=self.tol, max_iter=self.max_iter, precondition=True)
+        if _HAS_SCIPY:
+            return np.asarray(solve_triangular(L.T, g, lower=False), dtype=float)
+        return np.linalg.solve(L.T, g)
 
     def _hinv_norm(self, s: Array) -> float:
         z = self._cg_solve(s, tol=self.tol, max_iter=self.max_iter, precondition=True)
