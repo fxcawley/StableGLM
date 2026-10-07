@@ -2473,7 +2473,7 @@ class RashomonSet:
         mode : str, default="fixed"
             Threshold selection mode:
             - "fixed": use provided value (default 0.5 for logit 0)
-            - "match_prevalence": threshold that matches empirical prevalence
+            - "match_prevalence": margin quantile matching the prevalence (X_val margins if given)
             - "match_fpr": threshold for target false positive rate (requires fpr= kwarg)
             - "youden": maximize Youden's J statistic (requires X_val, y_val kwargs)
         value : float, optional
@@ -2505,7 +2505,9 @@ class RashomonSet:
             return float(np.log(value / (1.0 - value)))
 
         elif mode == "match_prevalence":
-            # Set threshold so predicted prevalence matches empirical
+            # Threshold at which the fraction of positive predictions equals the
+            # empirical prevalence: the (1 - prevalence) quantile of the margins.
+            # (Earlier versions returned logit(prevalence), which does not do this.)
             prevalence = float(np.mean(y))
             if prevalence <= 0.0 or prevalence >= 1.0:
                 warnings.warn(
@@ -2513,7 +2515,14 @@ class RashomonSet:
                     stacklevel=2,
                 )
                 return 0.0
-            return float(np.log(prevalence / (1.0 - prevalence)))
+            X_val = kwargs.get("X_val")
+            if X_val is not None:
+                margins = self.decision_function(X_val)
+            else:
+                if self._X is None:
+                    raise RuntimeError("Call fit() first")
+                margins = self._X @ self._theta_hat
+            return float(np.quantile(margins, 1.0 - prevalence))
 
         elif mode == "match_fpr":
             # Requires validation data to estimate threshold for target FPR

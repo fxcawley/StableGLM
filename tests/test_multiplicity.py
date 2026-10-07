@@ -31,9 +31,13 @@ def test_threshold_match_prevalence():
     rs = RashomonSet(estimator="logistic", random_state=42).fit(X, y)
 
     tau = rs.compute_threshold(y, mode="match_prevalence")
-    # Threshold should be logit(0.7)
-    expected = np.log(0.7 / 0.3)
-    assert abs(tau - expected) < 1e-6
+    # The fraction of rows predicted positive at this threshold equals the prevalence.
+    predicted_positive = np.mean(rs.decision_function(X) > tau)
+    assert abs(predicted_positive - 0.7) <= 1.0 / len(y) + 1e-12
+    # Validation margins can be used instead of the training ones.
+    X_val = np.random.randn(50, 5)
+    tau_val = rs.compute_threshold(y, mode="match_prevalence", X_val=X_val)
+    assert abs(np.mean(rs.decision_function(X_val) > tau_val) - 0.7) <= 1.0 / 50 + 1e-12
 
 
 def test_threshold_match_fpr():
@@ -116,8 +120,9 @@ def test_ambiguity_match_prevalence():
     amb = rs.ambiguity(X, threshold_mode="match_prevalence", y=y)
 
     assert 0.0 <= amb["ambiguity_rate"] <= 1.0
-    expected_threshold = np.log(0.6 / 0.4)
-    assert abs(amb["threshold"] - expected_threshold) < 1e-6
+    # the threshold is the margin quantile that reproduces the 60% prevalence
+    assert amb["threshold"] == pytest.approx(np.quantile(rs.decision_function(X), 0.4))
+    assert abs(np.mean(rs.decision_function(X) > amb["threshold"]) - 0.6) <= 1.0 / 50 + 1e-12
 
 
 def test_ambiguity_requires_fit():
