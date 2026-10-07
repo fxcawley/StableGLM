@@ -19,15 +19,14 @@ import sys
 import time
 
 import numpy as np
+from sklearn.compose import ColumnTransformer
 from sklearn.datasets import load_breast_cancer
 from sklearn.decomposition import PCA
+from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import GridSearchCV
-from sklearn.preprocessing import StandardScaler
-from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
-from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import OneHotEncoder
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from rashomon import RashomonSet
@@ -47,7 +46,7 @@ def load_adult(filepath: str) -> tuple:
             data.append(row)
     arr = np.array(data, dtype=object)
     X_raw = arr[:, :-1]
-    y = np.array([1.0 if l == ">50K" else 0.0 for l in arr[:, -1]])
+    y = np.array([1.0 if label == ">50K" else 0.0 for label in arr[:, -1]])
     preprocessor = ColumnTransformer(transformers=[
         ("num", Pipeline([("imp", SimpleImputer(strategy="mean")),
                           ("scl", StandardScaler())]), [0, 2, 4, 10, 11, 12]),
@@ -108,7 +107,6 @@ def run_dataset(name: str, X: np.ndarray, y: np.ndarray, C: float,
     t_fit = time.perf_counter() - t0
 
     acc = rs.score(X, y)
-    null_loss = float(np.mean(np.logaddexp(0.0, np.zeros(n))))
     null_in = rs._oracle.contains(np.zeros(d))
     print(f"  fit: {t_fit:.3f}s  L_hat={rs._L_hat:.4f}  acc={acc:.1%}  null_in_set={null_in}")
 

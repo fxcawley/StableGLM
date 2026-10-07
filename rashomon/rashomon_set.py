@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import platform
 import warnings
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import numpy as np
 
@@ -14,8 +14,8 @@ except Exception:  # pragma: no cover
     _HAS_SK = False
 
 try:  # optional: scipy for chi2 quantiles
-    from scipy.stats import chi2  # type: ignore
-    from scipy.linalg import solve_triangular  # type: ignore
+    from scipy.linalg import solve_triangular
+    from scipy.stats import chi2
     _HAS_SCIPY = True
 except Exception:  # pragma: no cover
     _HAS_SCIPY = False
@@ -24,7 +24,7 @@ except Exception:  # pragma: no cover
 Array = np.ndarray
 
 
-def _sigmoid(z: Array) -> Array:
+def _sigmoid(z: Any) -> Array:
     """Numerically stable sigmoid: avoids overflow for large negative z."""
     z = np.asarray(z, dtype=float)
     return np.where(z >= 0, 1.0 / (1.0 + np.exp(-z)), np.exp(z) / (1.0 + np.exp(z)))
@@ -363,7 +363,6 @@ class RashomonSet:
         # Guardrails: conditioning and separation proxies
         kappa_H = self._estimate_hessian_condition_number()
         w_min = float(np.min(self._w_diag)) if self._w_diag is not None else 1.0
-        min_signed_margin = self._compute_min_signed_margin()
 
         if self.estimator == "logistic" and w_min < 1e-6 and not self.safety_override:
             raise RuntimeError(
@@ -601,7 +600,7 @@ class RashomonSet:
     # -------------------------- Ellipsoid sampler ---------------------------
     def _hessian_matrix(self, force_recompute: bool = False) -> Array:
         """Compute or retrieve cached Hessian matrix.
-        
+
         Parameters
         ----------
         force_recompute : bool
@@ -627,7 +626,7 @@ class RashomonSet:
 
     def _hessian_cholesky(self, force_recompute: bool = False) -> Array:
         """Compute or retrieve cached Cholesky factorization of Hessian.
-        
+
         Returns L where H = L L^T.
         """
         if not force_recompute and self._H_chol is not None:
@@ -662,7 +661,7 @@ class RashomonSet:
         Uses cached Cholesky factorization H=L L^T and maps a uniform point in the
         L2 unit ball via θ = θ̂ + L^{-1} (sqrt(2ε) r u), with u unit vector,
         r ~ U(0,1)^{1/d} for uniform-in-ball radius.
-        
+
         Optimized with cached factorization (D15-D17).
         """
         if not self._fitted:
@@ -715,7 +714,7 @@ class RashomonSet:
         compute_diagnostics: bool = True,
     ) -> Array:
         """Hit-and-Run sampling using bracketed line search with safeguards.
-        
+
         Optimized with vectorized operations and diagnostic computation (D15-D18).
         """
 
@@ -763,7 +762,7 @@ class RashomonSet:
         line_tol = float(tol)
         max_growth_steps = 64
 
-        def make_delta(direction: Array, direction_proj: Array):
+        def make_delta(direction: Array, direction_proj: Array) -> Callable[[float], float]:
             def _delta(t: float) -> float:
                 theta_t = theta + t * direction
                 z_t = z + t * direction_proj
@@ -978,7 +977,6 @@ class RashomonSet:
 
     @staticmethod
     def _logistic_loss(X: Array, y: Array, theta: Array, lam: float) -> float:
-        n = X.shape[0]
         z = X @ theta
         # average logistic loss + L2
         L = np.mean(np.logaddexp(0.0, z) - y * z) + 0.5 * lam * float(np.dot(theta, theta))
@@ -1021,21 +1019,21 @@ class RashomonSet:
         if mode == "percent_loss":
             rho = float(self.epsilon)
             if not (0.0 < rho < 1.0):
-                warnings.warn("percent_loss expects epsilon in (0,1); clipping")
+                warnings.warn("percent_loss expects epsilon in (0,1); clipping", stacklevel=2)
                 rho = float(np.clip(rho, 1e-12, 1 - 1e-12))
             return rho * float(self._L_hat), None
         if mode == "LR_alpha":
             alpha = float(self.epsilon)
             if not _HAS_SCIPY:
-                warnings.warn("scipy not available; falling back to percent_loss calibration")
+                warnings.warn("scipy not available; falling back to percent_loss calibration", stacklevel=2)
                 return 0.05 * float(self._L_hat), None
             if not (0.0 < alpha < 1.0):
-                warnings.warn("LR_alpha expects alpha in (0,1); clipping")
+                warnings.warn("LR_alpha expects alpha in (0,1); clipping", stacklevel=2)
                 alpha = float(np.clip(alpha, 1e-12, 1 - 1e-12))
             # Wilks' theorem: 2n*DeltaL ~ chi^2_d. Exact when lambda=0 (unpenalized);
             # approximate under weak penalization. Use chi2 path when lambda is
             # small relative to the data term, or when user overrides.
-            lam_ratio = self._lambda * self._d / (float(self._L_hat) + 1e-12)
+            lam_ratio = float(self._lambda or 0.0) * self._d / (float(self._L_hat) + 1e-12)
             wilks_ok = lam_ratio < 0.1  # regularization contributes < 10% of loss
             if wilks_ok or self.safety_override:
                 eps = 0.5 * chi2.ppf(1.0 - alpha, df=self._d) / self._n
@@ -1043,21 +1041,22 @@ class RashomonSet:
             if self.bootstrap_fallback:
                 epsb = self._bootstrap_lr_alpha(alpha)
                 return float(epsb), alpha
-            warnings.warn("Wilks preconditions violated (penalized/high-dim). Falling back to percent_loss.")
+            warnings.warn("Wilks preconditions violated (penalized/high-dim). Falling back to percent_loss.", stacklevel=2)
             return 0.05 * float(self._L_hat), None
         if mode == "LR_alpha_highdim":
             alpha = float(self.epsilon)
             if not _HAS_SCIPY:
-                warnings.warn("scipy not available; falling back to percent_loss calibration")
+                warnings.warn("scipy not available; falling back to percent_loss calibration", stacklevel=2)
                 return 0.05 * float(self._L_hat), None
             if not (0.0 < alpha < 1.0):
-                warnings.warn("LR_alpha_highdim expects alpha in (0,1); clipping")
+                warnings.warn("LR_alpha_highdim expects alpha in (0,1); clipping", stacklevel=2)
                 alpha = float(np.clip(alpha, 1e-12, 1 - 1e-12))
             kappa = self._d / self._n
             if kappa >= 0.9:
                 warnings.warn(
                     f"d/n = {kappa:.2f} is too large for the Sur-Candès correction. "
-                    "Falling back to percent_loss."
+                    "Falling back to percent_loss.",
+                    stacklevel=2,
                 )
                 return 0.05 * float(self._L_hat), None
             # Sur-Candès (2019) adjustment: under proportional asymptotics
@@ -1067,7 +1066,7 @@ class RashomonSet:
             correction = 1.0 / max(1.0 - kappa, 0.1)
             eps = correction * 0.5 * chi2.ppf(1.0 - alpha, df=self._d) / self._n
             return float(eps), alpha
-        warnings.warn("Unknown epsilon_mode; defaulting to percent_loss 5%")
+        warnings.warn("Unknown epsilon_mode; defaulting to percent_loss 5%", stacklevel=2)
         return 0.05 * float(self._L_hat), None
 
     # --------------------------- H, CG, and norms ---------------------------
@@ -1086,7 +1085,7 @@ class RashomonSet:
 
     def _get_preconditioner_diag(self) -> Array:
         """Compute diagonal preconditioner approximation to H^{-1}.
-        
+
         Caches result for repeated CG solves (D17 optimization).
         """
         if self._H_inv_diag is not None:
@@ -1113,7 +1112,7 @@ class RashomonSet:
 
     def _cg_solve(self, b: Array, tol: float, max_iter: int, precondition: bool = True) -> Array:
         """Conjugate gradient solver with optional diagonal preconditioning.
-        
+
         Optimized with caching (D17).
         """
         x = np.zeros_like(b)
@@ -1245,7 +1244,7 @@ class RashomonSet:
         - Deterministic given random_state.
         """
         if self.estimator != "logistic":
-            warnings.warn("Bootstrap LR_alpha implemented for logistic only; using percent_loss fallback")
+            warnings.warn("Bootstrap LR_alpha implemented for logistic only; using percent_loss fallback", stacklevel=2)
             return 0.05 * float(self._L_hat)  # type: ignore[arg-type]
         if self._X is None or self._theta_hat is None or self._lambda is None or self._n is None:
             raise RuntimeError("Model not fully initialized for bootstrap")
@@ -1279,7 +1278,7 @@ class RashomonSet:
         compute_isotropy: bool = True,
     ) -> Dict[str, Any]:
         """Compute diagnostics for sampled parameters (ESS/min, chords, isotropy).
-        
+
         Parameters
         ----------
         samples : array of shape (n_samples, d)
@@ -1290,7 +1289,7 @@ class RashomonSet:
             Whether to compute effective sample size per minute (requires timing).
         compute_isotropy : bool
             Whether to compute isotropy ratio.
-        
+
         Returns
         -------
         dict with keys:
@@ -1354,7 +1353,6 @@ class RashomonSet:
                 for j in range(self._d):
                     chain = samples[:, j]
                     # Simple ESS via autocorrelation at lag 1
-                    mean_j = np.mean(chain)
                     var_j = np.var(chain)
                     if var_j > 1e-12:
                         acf1 = np.corrcoef(chain[:-1], chain[1:])[0, 1]
@@ -1402,7 +1400,7 @@ class RashomonSet:
         models; this method uses raw coefficients, which is the natural
         analog for linear models but only an approximation of importance
         for logistic regression (coefficients are in log-odds space).
-        
+
         Parameters
         ----------
         n_samples : int
@@ -1417,7 +1415,7 @@ class RashomonSet:
             Thinning for Hit-and-Run sampler (ignored for ellipsoid).
         random_state : Optional[int]
             Random seed for sampling.
-        
+
         Returns
         -------
         dict with keys:
@@ -1511,8 +1509,8 @@ class RashomonSet:
         """
         try:
             from .plotting import plot_vic
-        except ImportError:
-            raise ImportError("matplotlib is required for plotting. Install via: pip install matplotlib")
+        except ImportError as exc:
+            raise ImportError("matplotlib is required for plotting. Install via: pip install matplotlib") from exc
 
         # Compute VIC if not provided
         if vic_result is None:
@@ -1558,8 +1556,8 @@ class RashomonSet:
         """
         try:
             from .plotting import plot_ambiguity
-        except ImportError:
-            raise ImportError("matplotlib is required for plotting")
+        except ImportError as exc:
+            raise ImportError("matplotlib is required for plotting") from exc
 
         # Compute margins
         margins = self.decision_function(X)
@@ -1613,8 +1611,8 @@ class RashomonSet:
         """
         try:
             from .plotting import plot_discrepancy
-        except ImportError:
-            raise ImportError("matplotlib is required for plotting")
+        except ImportError as exc:
+            raise ImportError("matplotlib is required for plotting") from exc
 
         if not self._fitted:
             raise RuntimeError("Call fit() first")
@@ -1741,7 +1739,8 @@ class RashomonSet:
                 if collinear_pairs:
                     warnings.warn(
                         f"High collinearity detected: {len(collinear_pairs)} pairs. "
-                        "Consider using perm_mode='residual' or 'conditional'."
+                        "Consider using perm_mode='residual' or 'conditional'.",
+                        stacklevel=2,
                     )
             except Exception:
                 pass
@@ -1925,7 +1924,7 @@ class RashomonSet:
             - 'grad_norms': array (d,) - ||grad_I_j||_{H^{-1}} per feature
             - 'score_fn': str - which scoring function was used
         """
-        if not self._fitted:
+        if not self._fitted or self._theta_hat is None or self._epsilon_value is None:
             raise RuntimeError("Call fit() first.")
         X = self._prepare_X(np.asarray(X, dtype=float))
         y = np.asarray(y, dtype=float)
@@ -1958,7 +1957,7 @@ class RashomonSet:
             for j in range(d):
                 imp_sum = 0.0
                 grad_sum = np.zeros(d, dtype=float)
-                for p in range(n_permutations):
+                for _p in range(n_permutations):
                     Xp = X.copy()
                     rng.shuffle(Xp[:, j])
                     z_perm = Xp @ theta_hat
@@ -1984,7 +1983,7 @@ class RashomonSet:
             for j in range(d):
                 imp_sum = 0.0
                 grad_sum = np.zeros(d, dtype=float)
-                for p in range(n_permutations):
+                for _p in range(n_permutations):
                     Xp = X.copy()
                     rng.shuffle(Xp[:, j])
                     z_perm = Xp @ theta_hat
@@ -2642,7 +2641,7 @@ class RashomonSet:
             - 'confidence': float - confidence level used
             - 'divergence': dict with per-feature comparison metrics
         """
-        if not self._fitted:
+        if not self._fitted or self._theta_hat is None or self._epsilon_value is None:
             raise RuntimeError("Call fit() first.")
         X_raw = np.asarray(X, dtype=float)
         y = np.asarray(y, dtype=float)
@@ -2664,7 +2663,7 @@ class RashomonSet:
             # Fit the same model type on the bootstrap sample
             if self.estimator == "logistic":
                 if _HAS_SK:
-                    lam = self._lambda
+                    lam = float(self._lambda) if self._lambda is not None else 0.0
                     n_b = X_b.shape[0]
                     C_val = 1.0 / (n_b * lam) if lam > 0 else 1e6
                     model = LogisticRegression(
@@ -2680,7 +2679,7 @@ class RashomonSet:
                 else:
                     boot_coefs[b] = self.coef_
             else:
-                lam = self._lambda
+                lam = float(self._lambda) if self._lambda is not None else 0.0
                 if _HAS_SK:
                     n_b = X_b.shape[0]
                     model = Ridge(alpha=n_b * lam, fit_intercept=False)
@@ -2806,7 +2805,7 @@ class RashomonSet:
             - 'posterior_precision': (d, d) - the posterior precision matrix
             - 'epsilon_vs_chi2': dict - direct comparison of Rashomon radius to posterior radius
         """
-        if not self._fitted:
+        if not self._fitted or self._theta_hat is None or self._epsilon_value is None:
             raise RuntimeError("Call fit() first.")
 
         d = self._d
@@ -2818,7 +2817,8 @@ class RashomonSet:
 
         # Compute the posterior precision: H_post = n*H - (n-1)*lam*I
         H = self._hessian_matrix()
-        H_posterior = n * H - (n - 1) * lam * np.eye(d)
+        lam_f = float(lam) if lam is not None else 0.0
+        H_posterior = n * H - (n - 1) * lam_f * np.eye(d)
         # Ensure positive definite (prior keeps it PD)
         eigvals_post = np.linalg.eigvalsh(H_posterior)
         if np.min(eigvals_post) < 1e-10:
@@ -3021,7 +3021,7 @@ class RashomonSet:
 def _detect_blas_vendor() -> Optional[str]:
     try:
         import numpy as _np  # noqa: F401
-        from numpy import __config__ as _nc  # type: ignore
+        from numpy import __config__ as _nc
 
         info = getattr(_nc, "blas_opt_info", None)
         if isinstance(info, dict) and info:

@@ -1,18 +1,19 @@
 """Visualization utilities for Rashomon set stability analysis."""
 
-from typing import Any, Optional, Dict, Tuple, List
+from typing import Any, Dict, List, Optional, Tuple, cast
+
 import numpy as np
 
 __all__ = ["plot_vic", "plot_ambiguity", "plot_discrepancy"]
 
 try:
     import matplotlib.pyplot as plt
-    from matplotlib.figure import Figure
     from matplotlib.axes import Axes
-except ImportError:
-    plt = None
-    Figure = Any
-    Axes = Any
+    from matplotlib.figure import Figure
+except ImportError:  # pragma: no cover
+    plt = None  # type: ignore[assignment]
+    Figure = Any  # type: ignore[assignment,misc]
+    Axes = Any  # type: ignore[assignment,misc]
 
 
 def plot_vic(
@@ -21,7 +22,7 @@ def plot_vic(
     figsize: Optional[Tuple[float, float]] = None,
 ) -> Tuple[Figure, Axes]:
     """Plot coefficient distributions across the Rashomon set.
-    
+
     Parameters
     ----------
     vic_result : dict
@@ -30,7 +31,7 @@ def plot_vic(
         Optimal parameter vector to highlight.
     figsize : tuple, optional
         Figure size.
-    
+
     Returns
     -------
     fig, ax : matplotlib objects
@@ -52,7 +53,7 @@ def plot_vic(
 
     # Violin or box plots for each feature
     positions = np.arange(d)
-    
+
     # Use violinplot for density estimation
     parts = ax.violinplot(
         [samples[:, j] for j in range(d)],
@@ -63,7 +64,7 @@ def plot_vic(
     )
 
     # Color violins
-    for pc in parts["bodies"]:
+    for pc in cast(List[Any], parts["bodies"]):
         pc.set_facecolor("#8dd3c7")
         pc.set_alpha(0.7)
         pc.set_edgecolor("black")
@@ -118,7 +119,7 @@ def plot_ambiguity(
     figsize: Optional[Tuple[float, float]] = (10, 6),
 ) -> Tuple[Figure, Axes]:
     """Plot distribution of predictive margins and highlight ambiguity region.
-    
+
     Parameters
     ----------
     margins : array
@@ -127,7 +128,7 @@ def plot_ambiguity(
         Decision threshold in margin space.
     ambiguous_indices : array, optional
         Indices of instances flagged as ambiguous.
-    
+
     Returns
     -------
     fig, ax
@@ -141,23 +142,23 @@ def plot_ambiguity(
     counts, bin_edges, patches = ax.hist(
         margins, bins=bins, color="skyblue", edgecolor="black", alpha=0.7, label="All Instances"
     )
-    
+
     # Highlight ambiguous instances if provided
     if ambiguous_indices is not None and len(ambiguous_indices) > 0:
         amb_margins = margins[ambiguous_indices]
         ax.hist(
-            amb_margins, bins=bin_edges, color="orange", edgecolor="red", alpha=0.8, 
+            amb_margins, bins=list(bin_edges), color="orange", edgecolor="red", alpha=0.8,
             label="Ambiguous Instances", hatch="//"
         )
 
     ax.axvline(threshold, color="red", linestyle="--", linewidth=2, label=f"Threshold τ={threshold:.2f}")
-    
+
     ax.set_xlabel("Predictive Margin ($x^T \\hat{\\theta}$)")
     ax.set_ylabel("Count")
     ax.set_title("Predictive Ambiguity Distribution")
     ax.legend()
     ax.grid(True, alpha=0.3)
-    
+
     plt.tight_layout()
     return fig, ax
 
@@ -168,12 +169,12 @@ def plot_discrepancy(
     figsize: Optional[Tuple[float, float]] = (8, 7),
 ) -> Tuple[Figure, Axes]:
     """Plot pairwise discrepancy matrix between sampled models.
-    
+
     Parameters
     ----------
     discrepancy_matrix : array of shape (n_samples, n_samples)
         Pairwise disagreement rates.
-    
+
     Returns
     -------
     fig, ax
@@ -182,14 +183,14 @@ def plot_discrepancy(
         raise ImportError("matplotlib is required for plotting.")
 
     fig, ax = plt.subplots(figsize=figsize)
-    
+
     im = ax.imshow(discrepancy_matrix, cmap="Reds", vmin=0, vmax=np.max(discrepancy_matrix))
     plt.colorbar(im, ax=ax, label="Disagreement Rate")
-    
+
     ax.set_title("Pairwise Model Discrepancy")
     ax.set_xlabel("Model Index $i$")
     ax.set_ylabel("Model Index $j$")
-    
+
     plt.tight_layout()
     return fig, ax
 

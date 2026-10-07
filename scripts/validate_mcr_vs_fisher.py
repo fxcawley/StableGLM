@@ -18,8 +18,8 @@ Usage:
 """
 from __future__ import annotations
 
-import sys
 import os
+import sys
 import time
 
 import numpy as np
@@ -48,7 +48,6 @@ def fisher_mcr_reference(
     """
     rng = np.random.default_rng(seed)
     n_models, d = theta_samples.shape
-    n = X.shape[0]
 
     importance_matrix = np.zeros((n_models, d))
 
@@ -100,7 +99,6 @@ def our_mcr_on_samples(
     """Run our MCR logic on specific pre-drawn samples (matching the internal loop)."""
     rng = np.random.default_rng(seed)
     n_models, d = samples.shape
-    n = X.shape[0]
     importance_matrix = np.zeros((n_models, d))
 
     for s_idx in range(n_models):

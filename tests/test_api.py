@@ -376,7 +376,7 @@ def test_lanczos_hinvsqrt():
     assert result.shape == (5,)
     # H^{-1/2} v should satisfy: H (H^{-1/2} v) = H^{1/2} v
     # Verify: ||H^{1/2} (H^{-1/2} v)||^2 ≈ v^T H^{-1} H v = v^T v
-    Hresult = rs._Hv(result)
+    rs._Hv(result)
     # H * H^{-1/2} v should be H^{1/2} v
     # Check that the norm is reasonable (not zero, not huge)
     assert np.linalg.norm(result) > 0
@@ -495,7 +495,7 @@ def test_from_ensemble():
 
     # Create an ensemble of slightly different models
     models = []
-    for i in range(20):
+    for _ in range(20):
         theta = w + 0.1 * rng.normal(size=d)
         models.append(theta)
 

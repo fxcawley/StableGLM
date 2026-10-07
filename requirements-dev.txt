@@ -10,6 +10,7 @@ sphinx
 myst-parser
 sphinx-rtd-theme
 ghapi ; python_version>='3.9'
-ruff
-mypy
+ruff==0.16.10
+mypy==2.4.0
+pandas-stubs
 pre-commit

@@ -53,13 +53,17 @@ target-version = ["py39", "py310", "py311", "py312"]
 [tool.ruff]
 line-length = 100
 target-version = "py39"
+src = ["rashomon", "tests", "scripts"]
+
+[tool.ruff.lint]
 select = [
   "E", "F", "I", "UP", "B", "PIE", "Q", "W"
 ]
-ignore = ["E501"]
-src = ["rashomon", "tests", "scripts"]
+# E501: long lines; UP006/UP007/UP035/UP045: keep typing.Optional/Dict style (py39 target,
+# not every module imports annotations from __future__).
+ignore = ["E501", "UP006", "UP007", "UP035", "UP045"]
 
-[tool.ruff.isort]
+[tool.ruff.lint.isort]
 known-first-party = ["rashomon"]
 
 [tool.mypy]

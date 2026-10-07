@@ -8,14 +8,13 @@ This script is run in CI to ensure tutorial numbers stay accurate.
 """
 from __future__ import annotations
 
+import os
 import re
 import sys
-import os
 
-import numpy as np
 from sklearn.datasets import load_breast_cancer
-from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from rashomon import RashomonSet
@@ -26,8 +25,6 @@ TUTORIAL_PATH = os.path.join(os.path.dirname(__file__), "..", "docs", "examples"
 def generate_tutorial_results() -> dict:
     """Reproduce the exact tutorial configuration and return all claimed numbers."""
     data = load_breast_cancer()
-    feature_names = ['radius', 'texture', 'perimeter', 'area', 'smoothness',
-                     'compactness', 'concavity', 'concave_pts', 'symmetry', 'fractal_dim']
     X = data.data[:, :10]
     y = data.target.astype(float)
     scaler = StandardScaler()
