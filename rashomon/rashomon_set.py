@@ -1097,18 +1097,26 @@ class RashomonSet:
         theta: Array,
         lam: float,
         mask: Array,
+        shift: Optional[Array] = None,
     ) -> Array:
-        """Damped Newton iterations with Armijo backtracking on the logistic objective."""
+        """Damped Newton iterations with Armijo backtracking on the logistic objective.
+
+        If ``shift`` is given, minimizes ``L(θ) - shiftᵀθ`` instead (used to trace the
+        boundary of the Rashomon set in :meth:`functional_range`).
+        """
         n, d = X.shape
         gtol = min(self.tol, 1e-8)
 
         def obj(th: Array) -> float:
-            return self._logistic_loss(X, y, th, lam, mask)
+            val = self._logistic_loss(X, y, th, lam, mask)
+            return val - float(shift @ th) if shift is not None else val
 
         L_curr = obj(theta)
         for _ in range(100):
             p = _sigmoid(X @ theta)
             g = (X.T @ (p - y)) / n + lam * mask * theta
+            if shift is not None:
+                g = g - shift
             if float(np.linalg.norm(g)) <= gtol:
                 break
             w = p * (1.0 - p)
@@ -1132,8 +1140,111 @@ class RashomonSet:
             theta, L_curr = theta_new, L_new
         return theta
 
+    # ------------------------ Exact extremes over the true set ---------------
+    def functional_range(self, s: Array) -> Tuple[float, float]:
+        """Exact ``(min, max)`` of the linear functional ``sᵀθ`` over the ε-Rashomon set.
 
+        Unlike :meth:`hacking_interval` (which uses the Hessian ellipsoid) and unlike
+        sampled extremes (which can only understate the range), this solves the convex
+        program ``max sᵀθ  s.t.  L(θ) ≤ L(θ̂) + ε`` exactly. For linear models the set
+        *is* the ellipsoid, so the closed form is returned. For logistic models the
+        maximizer is ``θ(μ) = argmin L(θ) - μ sᵀθ`` for the unique ``μ > 0`` at which
+        ``L(θ(μ)) = L(θ̂) + ε``; ``μ`` is found by safeguarded root finding with
+        warm-started Newton solves, so the cost is a few dozen Hessian builds.
+        """
+        if not self._fitted or self._theta_hat is None or self._epsilon_value is None or self._L_hat is None:
+            raise RuntimeError("Call fit() first.")
+        s = np.asarray(s, dtype=float)
+        if s.ndim != 1 or s.shape[0] != self._d:
+            raise ValueError("s must be a 1D vector of length d")
+        if self.estimator == "linear":
+            iv = self.hacking_interval(s)
+            return float(iv["min"]), float(iv["max"])
+        hi = self._maximize_functional(s)
+        lo = -self._maximize_functional(-s)
+        return min(lo, hi), max(lo, hi)
 
+    def _maximize_functional(self, s: Array) -> float:
+        """max sᵀθ over the logistic Rashomon set via the Lagrangian boundary trace."""
+        assert self._X is not None and self._y is not None and self._theta_hat is not None
+        assert self._lambda is not None and self._epsilon_value is not None and self._L_hat is not None
+        X, y, lam, mask = self._X, self._y, float(self._lambda), self._reg_mask_or_ones()
+        eps, target = float(self._epsilon_value), float(self._L_hat) + float(self._epsilon_value)
+        theta_hat = self._theta_hat
+        L = self._hessian_cholesky()
+        # Quadratic-approximation initial guess: θ(μ) ≈ θ̂ + μ H⁻¹s and L - L̂ ≈ ½μ² sᵀH⁻¹s.
+        if _HAS_SCIPY:
+            hinv_s = solve_triangular(L.T, solve_triangular(L, s, lower=True), lower=False)
+        else:
+            hinv_s = np.linalg.solve(L.T, np.linalg.solve(L, s))
+        quad = float(s @ hinv_s)
+        if quad <= 0.0:
+            return float(s @ theta_hat)
+        mu0 = float(np.sqrt(2.0 * eps / quad))
+
+        def solve_at(mu: float, init: Array) -> Tuple[Array, float]:
+            th = self._newton_logistic(X, y, init, lam, mask, shift=mu * s)
+            return th, self._logistic_loss(X, y, th, lam, mask) - target
+
+        # Bracket the root of h(μ) = L(θ(μ)) - target, which is increasing in μ.
+        mu_lo, h_lo, th_lo = 0.0, -eps, theta_hat
+        mu_hi, th_hi = mu0, theta_hat + mu0 * hinv_s
+        th_hi, h_hi = solve_at(mu_hi, th_hi)
+        for _ in range(60):
+            if h_hi >= 0.0:
+                break
+            mu_lo, h_lo, th_lo = mu_hi, h_hi, th_hi
+            mu_hi *= 2.0
+            th_hi, h_hi = solve_at(mu_hi, th_hi)
+        else:
+            warnings.warn("functional_range: could not bracket the set boundary; returning best lower estimate", stacklevel=2)
+            return float(s @ th_hi)
+        # Illinois (modified regula falsi) iterations on the bracket.
+        tol_h = 1e-10 * max(1.0, abs(target))
+        best_theta = th_hi
+        side = 0
+        for _ in range(80):
+            if abs(h_hi) <= tol_h:
+                best_theta = th_hi
+                break
+            if abs(h_lo) <= tol_h and mu_lo > 0.0:
+                best_theta = th_lo
+                break
+            mu = mu_hi - h_hi * (mu_hi - mu_lo) / (h_hi - h_lo)
+            if not (mu_lo < mu < mu_hi):
+                mu = 0.5 * (mu_lo + mu_hi)
+            th, h = solve_at(mu, th_lo if abs(h_lo) < abs(h_hi) else th_hi)
+            if h >= 0.0:
+                mu_hi, h_hi, th_hi = mu, h, th
+                if side == -1:
+                    h_lo *= 0.5
+                side = -1
+            else:
+                mu_lo, h_lo, th_lo = mu, h, th
+                if side == 1:
+                    h_hi *= 0.5
+                side = 1
+            best_theta = th_hi
+            if mu_hi - mu_lo <= 1e-12 * max(1.0, mu_hi):
+                break
+        return float(s @ best_theta)
+
+    def coef_extremes(self, indices: Optional[Array] = None) -> Array:
+        """Exact per-coordinate ``[min, max]`` over the ε-Rashomon set (see :meth:`functional_range`).
+
+        Returns an array of shape ``(m, 2)``; coordinates include the intercept (index 0)
+        when ``fit_intercept=True``.
+        """
+        if not self._fitted:
+            raise RuntimeError("Call fit() first.")
+        d = self._d
+        idx = np.arange(d) if indices is None else np.asarray(indices, dtype=int)
+        out = np.empty((idx.shape[0], 2), dtype=float)
+        for k, j in enumerate(idx):
+            e = np.zeros(d, dtype=float)
+            e[j] = 1.0
+            out[k] = self.functional_range(e)
+        return out
 
     @staticmethod
     def _logistic_loss(X: Array, y: Array, theta: Array, lam: float, mask: Optional[Array] = None) -> float:

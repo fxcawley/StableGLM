@@ -127,6 +127,35 @@ def test_ellipsoid_samples_lie_in_the_hessian_ellipsoid(cancer):
     assert np.mean((quad / (2.0 * rs._epsilon_value)) ** (d / 2)) == pytest.approx(0.5, abs=0.03)
 
 
+def test_exact_functional_range(cancer):
+    X, y01 = cancer
+    n = len(y01)
+    rs = RashomonSet(estimator="logistic", C=0.5 * n, fit_intercept=True, epsilon=0.02, random_state=0).fit(X, y01)
+    extremes = rs.coef_extremes()
+    assert extremes.shape == (rs._d, 2)
+    assert np.all(extremes[:, 0] <= rs._theta_hat) and np.all(rs._theta_hat <= extremes[:, 1])
+    # every sampled model lies inside the exact coordinate ranges
+    S = rs.sample_hitandrun(n_samples=1500, burnin=100, random_state=0, ellipsoid_mix=0.5)
+    assert np.all(S.min(axis=0) >= extremes[:, 0] - 1e-9) and np.all(S.max(axis=0) <= extremes[:, 1] + 1e-9)
+    # the maximizer sits on the boundary: reconstruct it and check its loss gap equals epsilon
+    e = np.zeros(rs._d)
+    e[2] = 1.0
+    lo, hi = rs.functional_range(e)
+    assert lo < rs._theta_hat[2] < hi
+    # exact range should be close to, but not identical with, the ellipsoid interval
+    ell = rs.hacking_interval(e)
+    assert abs(hi - ell["max"]) < 0.25 * (hi - lo) and abs(lo - ell["min"]) < 0.25 * (hi - lo)
+    # a generic direction, and the linear closed form
+    rng = np.random.default_rng(0)
+    s = rng.normal(size=rs._d)
+    lo_s, hi_s = rs.functional_range(s)
+    assert lo_s < float(s @ rs._theta_hat) < hi_s
+    y = X @ np.arange(1, 11) + rng.normal(size=n) + 5.0
+    rl = RashomonSet(estimator="linear", C=n / 3.0, fit_intercept=True, epsilon=0.05).fit(X, y)
+    iv = rl.hacking_interval(s)
+    assert rl.functional_range(s) == pytest.approx((iv["min"], iv["max"]))
+
+
 def test_hybrid_sampler_matches_pure_hit_and_run_and_exact_linear_case(cancer):
     X, y01 = cancer
     n = len(y01)
