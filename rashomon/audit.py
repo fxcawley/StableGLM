@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
+from scipy.stats import chi2
 from sklearn.base import clone
 from sklearn.model_selection import KFold, StratifiedKFold
 
@@ -286,6 +287,9 @@ def audit(
         * ``"lr"`` / ``("lr", alpha)``: likelihood-ratio calibration, the set of
           models not rejected at level ``alpha`` (default 0.05). Exact for unpenalized
           fits, a heuristic under regularization.
+        * ``("profile", alpha)``: a gap of ``chi2_1(1 - alpha) / (2n)``. For an
+          unpenalized fit the coefficient ranges are then the ``1 - alpha``
+          profile-likelihood confidence intervals (as from R's ``confint``).
         * ``("absolute", gap)``: a loss gap in training-loss units.
     threshold : float, None or "auto", default "auto"
         Decision threshold on the predicted probability (classification; ``"auto"``
@@ -654,13 +658,23 @@ def _resolve_tolerance(
         raise ValueError("tolerance string must be 'cv' or 'lr'")
     if isinstance(tolerance, tuple):
         if len(tolerance) != 2:
-            raise ValueError("tuple tolerance must be ('lr', alpha) or ('absolute', gap)")
+            raise ValueError("tuple tolerance must be ('lr', alpha), ('profile', alpha) or ('absolute', gap)")
         kind, value = tolerance[0].lower(), float(tolerance[1])
         if kind == "lr":
             return value, "LR_alpha", f"likelihood-ratio set at level alpha={value:g}"
         if kind == "absolute":
             return value, "absolute", f"an explicit loss gap of {value:.4g}"
-        raise ValueError("tuple tolerance must be ('lr', alpha) or ('absolute', gap)")
+        if kind == "profile":
+            if not (0.0 < value < 1.0):
+                raise ValueError("('profile', alpha) needs alpha in (0, 1)")
+            gap = float(chi2.ppf(1.0 - value, df=1)) / (2.0 * X.shape[0])
+            return (
+                gap,
+                "absolute",
+                f"chi2_1(1-{value:g}) / (2n): coefficient ranges equal {1 - value:.0%} profile-likelihood "
+                "confidence intervals for an unpenalized fit",
+            )
+        raise ValueError("tuple tolerance must be ('lr', alpha), ('profile', alpha) or ('absolute', gap)")
     r = float(tolerance)
     if not (0.0 < r < 1.0):
         raise ValueError("a float tolerance is a relative loss increase and must lie in (0, 1)")
