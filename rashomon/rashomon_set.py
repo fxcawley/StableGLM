@@ -7,8 +7,8 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 import numpy as np
 
-try:  # optional: sklearn for reliable solvers
-    from sklearn.linear_model import LogisticRegression, Ridge
+try:  # optional: sklearn L-BFGS as initializer for the logistic solver
+    from sklearn.linear_model import LogisticRegression
     _HAS_SK = True
 except Exception:  # pragma: no cover
     _HAS_SK = False
@@ -44,6 +44,7 @@ class _MembershipOracle:
         "_X",
         "_y",
         "_lam",
+        "_reg_mask",
         "_L_hat",
         "_epsilon",
         "_tol",
@@ -61,6 +62,7 @@ class _MembershipOracle:
         L_hat: float,
         epsilon: float,
         tol: float,
+        reg_mask: Optional[Array] = None,
     ) -> None:
         self._estimator = estimator
         self._X = X
@@ -71,6 +73,8 @@ class _MembershipOracle:
         self._tol = float(tol)
         self._n = X.shape[0]
         self._d = X.shape[1]
+        # reg_mask[j] = 1 if coordinate j is penalized, 0 otherwise (e.g. intercept).
+        self._reg_mask = np.ones(self._d, dtype=float) if reg_mask is None else np.asarray(reg_mask, dtype=float)
 
     # ------------------------------------------------------------------ utils
     def with_tolerance(self, tol: float) -> _MembershipOracle:
@@ -84,6 +88,7 @@ class _MembershipOracle:
             L_hat=self._L_hat,
             epsilon=self._epsilon,
             tol=tol,
+            reg_mask=self._reg_mask,
         )
 
     def _validate_theta(self, theta: Array) -> Array:
@@ -131,7 +136,7 @@ class _MembershipOracle:
         else:
             resid = self._y - scores
             data = float(0.5 * np.mean(resid * resid))
-        reg = 0.5 * self._lam * float(theta_arr @ theta_arr)
+        reg = 0.5 * self._lam * float(theta_arr @ (self._reg_mask * theta_arr))
         return data + reg
 
     def objective_many(self, Theta: Array, *, XTheta: Optional[Array] = None) -> Array:
@@ -143,7 +148,7 @@ class _MembershipOracle:
         else:
             resid = self._y[:, None] - scores
             data = 0.5 * np.mean(resid * resid, axis=0)
-        reg = 0.5 * self._lam * np.sum(Theta_arr * Theta_arr, axis=1)
+        reg = 0.5 * self._lam * np.sum(Theta_arr * Theta_arr * self._reg_mask[None, :], axis=1)
         return (data + reg).astype(float, copy=False)
 
     def loss_gap(self, theta: Array, *, x_theta: Optional[Array] = None) -> float:
@@ -207,18 +212,30 @@ class RashomonSet:
     reg : {"l2"}
         Regularization type (currently L2 only).
     C : float
-        Inverse regularization strength (sklearn semantics). lambda = 1/C.
+        Inverse regularization strength for the *mean-loss* objective
+        ``L(theta) = mean_i loss_i(theta) + (lambda/2) ||theta||^2`` with
+        ``lambda = 1/C``. Use ``C=np.inf`` for an unpenalized fit (lambda=0).
+
+        .. warning::
+            This is **not** scikit-learn's ``C``. scikit-learn minimizes
+            ``C_sk * sum_i loss_i + 0.5 ||w||^2``, so ``C_sk = C / n``
+            (equivalently ``lambda = 1 / (n * C_sk)``).
     epsilon : float
         Tolerance parameter.
         - If epsilon_mode == "percent_loss": interpreted as rho in (0,1) (percentage of loss increase).
         - If epsilon_mode == "LR_alpha": interpreted as alpha in (0,1) (Chi2 significance level).
-    epsilon_mode : {"percent_loss", "LR_alpha", "LR_alpha_highdim"}
+        - If epsilon_mode == "absolute": interpreted as the loss gap itself, in the units of ``L``.
+    epsilon_mode : {"percent_loss", "LR_alpha", "LR_alpha_highdim", "absolute"}
         Calibration mode for epsilon.
     fit_intercept : bool
         If True, a column of ones is prepended to X internally and the
         intercept is included in the Rashomon set analysis. The intercept
         coefficient is separated out in ``intercept_`` and excluded from
         ``coef_``. Default False (no intercept).
+    penalize_intercept : bool
+        Only relevant when ``fit_intercept=True``. If False (default, the
+        scikit-learn convention) the intercept is excluded from the L2 penalty.
+        If True the intercept is penalized like every other coefficient.
     sampler : {"ellipsoid", "hitandrun"}
         Sampling backend. "ellipsoid" is faster for lower dimensions; "hitandrun" is more robust
         for complex sets or higher dimensions.
@@ -266,6 +283,7 @@ class RashomonSet:
         safety_override: bool = False,
         bootstrap_fallback: bool = True,
         bootstrap_reps: int = 200,
+        penalize_intercept: bool = False,
     ) -> None:
         self.estimator = estimator
         self.reg = reg
@@ -273,6 +291,7 @@ class RashomonSet:
         self.epsilon = float(epsilon)
         self.epsilon_mode = epsilon_mode
         self.fit_intercept = bool(fit_intercept)
+        self.penalize_intercept = bool(penalize_intercept)
         self.sampler = sampler
         self.measure = measure
         self.random_state = random_state
@@ -292,6 +311,7 @@ class RashomonSet:
         self._theta_hat: Optional[Array] = None
         self._L_hat: Optional[float] = None
         self._lambda: Optional[float] = None
+        self._reg_mask: Optional[Array] = None  # 1 = penalized coordinate, 0 = unpenalized
         self._epsilon_value: Optional[float] = None
         self._implied_alpha: Optional[float] = None
 
@@ -314,43 +334,68 @@ class RashomonSet:
         """Prepend a column of ones for the intercept."""
         return np.column_stack([np.ones(X.shape[0], dtype=float), X])
 
-    def fit(self, X: Array, y: Array) -> RashomonSet:
+    def fit(self, X: Array, y: Array, *, theta_init: Optional[Array] = None) -> RashomonSet:
         """Fit the base GLM and prepare diagnostics and operators.
+
+        Parameters
+        ----------
+        X, y : arrays
+            Training data. For logistic models ``y`` must be in {0, 1}.
+        theta_init : array of shape (d,) or (d+1,) when ``fit_intercept=True``, optional
+            Warm start for the solver, e.g. the coefficients of an already-fitted
+            model (intercept first). The optimum is always polished with damped
+            Newton steps, so the result does not depend on the warm start beyond
+            floating-point effects.
 
         Notes
         -----
-        - Uses sklearn (if available) for solvers; otherwise falls back to simple
-          Newton/gradient-based updates (sufficient for small tests).
-        - L(θ) matches proposal: averaged loss + (λ/2)||θ||^2.
-        - Guardrails enforce λ>0 and reasonable conditioning unless overridden.
+        - L(θ) = averaged loss + (λ/2) θᵀ M θ, where M masks out unpenalized
+          coordinates (the intercept unless ``penalize_intercept=True``).
+        - Guardrails enforce λ ≥ 0 and reasonable conditioning unless overridden.
+          With λ = 0 (``C=np.inf``) the fit is the unpenalized MLE / OLS and the
+          Hessian must be positive definite on its own.
         - When fit_intercept=True, a column of ones is prepended to X internally.
           The intercept is part of the full parameter vector θ and is included in
           all Rashomon set computations. Access via ``intercept_`` property.
         """
         self._oracle = None
-        X = np.asarray(X)
-        y = np.asarray(y)
+        self._H = None
+        self._H_chol = None
+        self._H_inv_diag = None
+        self._last_sample_diagnostics = None
+        X = np.asarray(X, dtype=float)
+        y = np.asarray(y, dtype=float)
         if X.ndim != 2:
             raise ValueError("X must be 2D array")
         if y.ndim != 1 or y.shape[0] != X.shape[0]:
             raise ValueError("y must be 1D with same n as X")
+        if self.estimator == "logistic" and not np.all(np.isin(y, (0.0, 1.0))):
+            raise ValueError("Logistic models require y in {0, 1}")
         self._d_original = X.shape[1]
         if self.fit_intercept:
             X = self._augment_X(X)
         n, d = X.shape
         self._n, self._d = n, d
-        lam = 1.0 / self.C
-        if lam <= 0.0:
-            raise ValueError("C must be finite and > 0 (λ=1/C needed for L2 regularization)")
+        if not (self.C > 0.0):
+            raise ValueError("C must be > 0 (use C=np.inf for an unpenalized fit)")
+        lam = 0.0 if np.isinf(self.C) else 1.0 / self.C
         if self.reg.lower() != "l2":
             raise ValueError("Only L2 regularization is supported in v0")
         self._lambda = lam
+        mask = np.ones(d, dtype=float)
+        if self.fit_intercept and not self.penalize_intercept:
+            mask[0] = 0.0
+        self._reg_mask = mask
+        if theta_init is not None:
+            theta_init = np.asarray(theta_init, dtype=float).ravel()
+            if theta_init.shape != (d,):
+                raise ValueError(f"theta_init must have shape ({d},) including the intercept if fit_intercept=True")
 
         if self.estimator == "logistic":
-            theta, L_hat, w_diag = self._fit_logistic_l2(X, y, lam)
+            theta, L_hat, w_diag = self._fit_logistic_l2(X, y, lam, mask, theta_init=theta_init)
             self._w_diag = w_diag
         elif self.estimator == "linear":
-            theta, L_hat = self._fit_linear_ridge(X, y, lam)
+            theta, L_hat = self._fit_linear_ridge(X, y, lam, mask)
             self._w_diag = np.ones(n, dtype=float)
         else:
             raise ValueError("estimator must be 'logistic' or 'linear'")
@@ -364,9 +409,13 @@ class RashomonSet:
         kappa_H = self._estimate_hessian_condition_number()
         w_min = float(np.min(self._w_diag)) if self._w_diag is not None else 1.0
 
-        if self.estimator == "logistic" and w_min < 1e-6 and not self.safety_override:
+        # A few confidently classified points (tiny p(1-p)) are harmless when lambda > 0:
+        # the objective stays strongly convex and the Rashomon set bounded. Without a
+        # penalty, (quasi-)separation means the MLE does not exist, so we refuse.
+        if self.estimator == "logistic" and lam == 0.0 and w_min < 1e-6 and not self.safety_override:
             raise RuntimeError(
-                "Near-separation detected (min p(1-p) too small). Ensure L2 regularization or override."
+                "Near-separation detected in an unpenalized logistic fit (min p(1-p) too small); "
+                "the maximum-likelihood optimum is not finite. Add L2 regularization or override."
             )
         if kappa_H is not None and kappa_H > 1e8 and not self.safety_override:
             raise RuntimeError(
@@ -385,9 +434,11 @@ class RashomonSet:
             L_hat=self._L_hat,
             epsilon=self._epsilon_value,
             tol=self.tol,
+            reg_mask=self._reg_mask,
         )
         self._fitted = True
         return self
+
 
     def diagnostics(self) -> Dict[str, Any]:
         if not self._fitted:
@@ -400,6 +451,8 @@ class RashomonSet:
             "theta_norm_2": float(np.linalg.norm(self._theta_hat)) if self._theta_hat is not None else None,
             "epsilon": self._epsilon_value,
             "epsilon_mode": self.epsilon_mode,
+            "lambda": self._lambda,
+            "penalize_intercept": self.penalize_intercept,
             "implied_alpha": self._implied_alpha,
             "measure": self.measure,
             "seed": self._seed,
@@ -614,15 +667,19 @@ class RashomonSet:
         X = self._X
         n = self._n
         lam = self._lambda
+        reg = lam * np.diag(self._reg_mask_or_ones())
         if self.estimator == "logistic":
             if self._w_diag is None:
                 raise RuntimeError("Weights unavailable")
             Xw = X * np.sqrt(self._w_diag)[:, None]
-            H = (Xw.T @ Xw) / n + lam * np.eye(self._d)
+            H = (Xw.T @ Xw) / n + reg
         else:
-            H = (X.T @ X) / n + lam * np.eye(self._d)
+            H = (X.T @ X) / n + reg
         self._H = H.astype(float, copy=False)
         return self._H
+
+    def _reg_mask_or_ones(self) -> Array:
+        return np.ones(self._d, dtype=float) if self._reg_mask is None else self._reg_mask
 
     def _hessian_cholesky(self, force_recompute: bool = False) -> Array:
         """Compute or retrieve cached Cholesky factorization of Hessian.
@@ -935,6 +992,8 @@ class RashomonSet:
             "C": self.C,
             "epsilon": self.epsilon,
             "epsilon_mode": self.epsilon_mode,
+            "fit_intercept": self.fit_intercept,
+            "penalize_intercept": self.penalize_intercept,
             "sampler": self.sampler,
             "measure": self.measure,
             "random_state": self.random_state,
@@ -972,85 +1031,127 @@ class RashomonSet:
         return 1.0 - ss_res / ss_tot
 
     # ------------------------------ Internals -------------------------------
-    def _fit_linear_ridge(self, X: Array, y: Array, lam: float) -> Tuple[Array, float]:
+    def _fit_linear_ridge(
+        self, X: Array, y: Array, lam: float, mask: Optional[Array] = None
+    ) -> Tuple[Array, float]:
+        """Exact minimizer of 0.5*mean((y - Xθ)^2) + (λ/2) θᵀ diag(mask) θ."""
         n, d = X.shape
-        if _HAS_SK:
-            # sklearn Ridge minimizes ||y-Xw||^2 + alpha*||w||^2 (sum, not mean)
-            # Our objective uses (1/2n)*sum + (lam/2)*||w||^2, so alpha = n*lam
-            model = Ridge(alpha=n * lam, fit_intercept=False)
-            model.fit(X, y)
-            theta = model.coef_.astype(float, copy=False)
-        else:
-            A = (X.T @ X) / n + lam * np.eye(d)
-            b = (X.T @ y) / n
+        m = np.ones(d, dtype=float) if mask is None else mask
+        A = (X.T @ X) / n + lam * np.diag(m)
+        b = (X.T @ y) / n
+        try:
             theta = np.linalg.solve(A, b)
+        except np.linalg.LinAlgError:
+            theta = np.linalg.lstsq(A, b, rcond=None)[0]
         resid = y - X @ theta
-        L = 0.5 * np.mean(resid ** 2) + 0.5 * lam * float(np.dot(theta, theta))
+        L = 0.5 * float(np.mean(resid**2)) + 0.5 * lam * float(theta @ (m * theta))
         return theta, L
 
-    def _fit_logistic_l2(self, X: Array, y: Array, lam: float) -> Tuple[Array, float, Array]:
+    def _fit_logistic_l2(
+        self,
+        X: Array,
+        y: Array,
+        lam: float,
+        mask: Optional[Array] = None,
+        *,
+        theta_init: Optional[Array] = None,
+    ) -> Tuple[Array, float, Array]:
+        """Minimize mean logistic loss + (λ/2) θᵀ diag(mask) θ.
+
+        scikit-learn's L-BFGS is used as an initializer when available (and no
+        warm start is given); the solution is then polished with damped Newton
+        steps on the exact objective so that ``theta_hat`` is its true minimizer,
+        not an L-BFGS iterate stopped at sklearn's default tolerance.
+        """
         n, d = X.shape
-        if _HAS_SK:
+        m = np.ones(d, dtype=float) if mask is None else mask
+        if theta_init is not None:
+            theta = np.array(theta_init, dtype=float)
+        elif _HAS_SK and lam > 0.0:
             # sklearn minimizes C*sum(loss) + (1/2)||w||^2 (sum, not mean)
             # Our objective: (1/n)*sum(loss) + (lam/2)||w||^2, so C = 1/(n*lam)
+            unpenalized_intercept = bool(self.fit_intercept and m[0] == 0.0)
             model = LogisticRegression(
-                C=1.0 / (n * lam), fit_intercept=False, solver="lbfgs",
-                l1_ratio=0,
+                C=1.0 / (n * lam), fit_intercept=unpenalized_intercept, solver="lbfgs",
                 max_iter=self.max_iter, random_state=self.random_state,
             )
-            model.fit(X, y.astype(int))
-            theta = model.coef_.ravel().astype(float, copy=False)
+            if unpenalized_intercept:
+                model.fit(X[:, 1:], y.astype(int))
+                theta = np.concatenate([np.ravel(model.intercept_), model.coef_.ravel()]).astype(float)
+            else:
+                model.fit(X, y.astype(int))
+                theta = model.coef_.ravel().astype(float, copy=False)
         else:
-            # Simple gradient descent with backtracking (sufficient for tests)
             theta = np.zeros(d, dtype=float)
-            t = 1.0
-            for _ in range(self.max_iter):
-                z = X @ theta
-                p = _sigmoid(z)
-                g = (X.T @ (p - y)) / n + lam * theta
-                gnorm = np.linalg.norm(g)
-                if gnorm < self.tol:
-                    break
-                # backtracking
-                t = 1.0
-                L_curr = self._logistic_loss(X, y, theta, lam)
-                while True:
-                    theta_new = theta - t * g
-                    L_new = self._logistic_loss(X, y, theta_new, lam)
-                    if L_new <= L_curr - 0.5 * t * gnorm * gnorm or t < 1e-8:
-                        theta = theta_new
-                        break
-                    t *= 0.5
+        theta = self._newton_logistic(X, y, theta, lam, m)
         z = X @ theta
         p = _sigmoid(z)
         w_diag = p * (1.0 - p)
-        L = self._logistic_loss(X, y, theta, lam)
+        L = self._logistic_loss(X, y, theta, lam, m)
         return theta, L, w_diag
 
+    def _newton_logistic(
+        self,
+        X: Array,
+        y: Array,
+        theta: Array,
+        lam: float,
+        mask: Array,
+    ) -> Array:
+        """Damped Newton iterations with Armijo backtracking on the logistic objective."""
+        n, d = X.shape
+        gtol = min(self.tol, 1e-8)
+
+        def obj(th: Array) -> float:
+            return self._logistic_loss(X, y, th, lam, mask)
+
+        L_curr = obj(theta)
+        for _ in range(100):
+            p = _sigmoid(X @ theta)
+            g = (X.T @ (p - y)) / n + lam * mask * theta
+            if float(np.linalg.norm(g)) <= gtol:
+                break
+            w = p * (1.0 - p)
+            H = (X.T @ (X * w[:, None])) / n + lam * np.diag(mask)
+            try:
+                step = np.linalg.solve(H + 1e-12 * np.eye(d), g)
+            except np.linalg.LinAlgError:
+                step = g
+            t = 1.0
+            slope = float(g @ step)
+            accepted = False
+            while t > 1e-10:
+                theta_new = theta - t * step
+                L_new = obj(theta_new)
+                if L_new <= L_curr - 1e-4 * t * slope:
+                    accepted = True
+                    break
+                t *= 0.5
+            if not accepted:
+                break
+            theta, L_curr = theta_new, L_new
+        return theta
+
+
+
+
     @staticmethod
-    def _logistic_loss(X: Array, y: Array, theta: Array, lam: float) -> float:
+    def _logistic_loss(X: Array, y: Array, theta: Array, lam: float, mask: Optional[Array] = None) -> float:
         z = X @ theta
-        # average logistic loss + L2
-        L = np.mean(np.logaddexp(0.0, z) - y * z) + 0.5 * lam * float(np.dot(theta, theta))
+        m = 1.0 if mask is None else mask
+        # average logistic loss + (masked) L2
+        L = np.mean(np.logaddexp(0.0, z) - y * z) + 0.5 * lam * float(theta @ (m * theta))
         return float(L)
 
     def _estimate_hessian_condition_number(self) -> Optional[float]:
         if self._X is None or self._w_diag is None or self._lambda is None:
             return None
-        X = self._X
-        n = self._n
-        lam = self._lambda
-        w = self._w_diag
-        # Weighted design for Hessian: H = X^T W X / n + lam I
-        # SVD on sqrt(W) X (for linear, w=1)
-        # Avoid building sqrt(W)X explicitly for huge n; fine here.
+        # H = X^T W X / n + lam * diag(mask); eigenvalues of the (small) d x d matrix.
         try:
-            Xw = X * np.sqrt(w)[:, None]
-            svals = np.linalg.svd(Xw, compute_uv=False)
-            if svals.size == 0:
+            eigs = np.linalg.eigvalsh(self._hessian_matrix())
+            if eigs.size == 0:
                 return None
-            eig_max = (svals[0] ** 2) / n + lam
-            eig_min = (svals[-1] ** 2) / n + lam
+            eig_min, eig_max = float(eigs[0]), float(eigs[-1])
             if eig_min <= 0:
                 return np.inf
             return float(eig_max / eig_min)
@@ -1068,6 +1169,11 @@ class RashomonSet:
         if self._L_hat is None or self._n is None or self._d is None:
             raise RuntimeError("Fit before calibrating epsilon")
         mode = self.epsilon_mode
+        if mode == "absolute":
+            eps = float(self.epsilon)
+            if not (eps > 0.0) or not np.isfinite(eps):
+                raise ValueError("absolute epsilon must be a finite positive loss gap")
+            return eps, None
         if mode == "percent_loss":
             rho = float(self.epsilon)
             if not (0.0 < rho < 1.0):
@@ -1127,13 +1233,13 @@ class RashomonSet:
             raise RuntimeError("Operators not initialized")
         X = self._X
         n = self._n
-        lam = self._lambda
+        reg_v = self._lambda * self._reg_mask_or_ones() * v
         if self.estimator == "logistic":
             Xv = X @ v
             WXv = self._w_diag * Xv
-            return (X.T @ WXv) / n + lam * v
+            return (X.T @ WXv) / n + reg_v
         # linear: W=1
-        return (X.T @ (X @ v)) / n + lam * v
+        return (X.T @ (X @ v)) / n + reg_v
 
     def _get_preconditioner_diag(self) -> Array:
         """Compute diagonal preconditioner approximation to H^{-1}.
@@ -1149,14 +1255,14 @@ class RashomonSet:
         # Diagonal of H = diag(X^T W X)/n + lambda
         X = self._X
         n = self._n
-        lam = self._lambda
+        reg_diag = self._lambda * self._reg_mask_or_ones()
 
         if self.estimator == "logistic":
             if self._w_diag is None:
                 raise RuntimeError("Weights unavailable")
-            H_diag = np.sum((X ** 2) * self._w_diag[:, None], axis=0) / n + lam
+            H_diag = np.sum((X ** 2) * self._w_diag[:, None], axis=0) / n + reg_diag
         else:
-            H_diag = np.sum(X ** 2, axis=0) / n + lam
+            H_diag = np.sum(X ** 2, axis=0) / n + reg_diag
 
         # Inverse diagonal for preconditioning
         self._H_inv_diag = 1.0 / (H_diag + 1e-12)
@@ -1319,10 +1425,11 @@ class RashomonSet:
         rng = np.random.default_rng(self._seed if self._seed is not None else 123456789)
         reps = max(int(self.bootstrap_reps), 10)
         lr_vals = np.empty(reps, dtype=float)
+        mask = self._reg_mask_or_ones()
         for b in range(reps):
             y_b = (rng.random(n) < p).astype(float)
-            theta_b, L_hat_b, _w = self._fit_logistic_l2(X, y_b, lam)
-            L_b_at_hat = self._logistic_loss(X, y_b, theta_hat, lam)
+            theta_b, L_hat_b, _w = self._fit_logistic_l2(X, y_b, lam, mask, theta_init=theta_hat)
+            L_b_at_hat = self._logistic_loss(X, y_b, theta_hat, lam, mask)
             lr_b = 2.0 * n * max(L_b_at_hat - L_hat_b, 0.0)
             lr_vals[b] = lr_b
         # empirical quantile
@@ -2715,44 +2822,22 @@ class RashomonSet:
         alpha = 1.0 - confidence
 
         # --- Bootstrap resampling ---
-        # Bootstrap fits on raw (unaugmented) data to match the original fit
+        # Refit the same objective (same lambda, same penalty mask) on each resample.
         X_boot_source = self._prepare_X(X_raw) if self.fit_intercept else X_raw
         boot_coefs = np.zeros((n_bootstrap, d), dtype=float)
+        lam = float(self._lambda) if self._lambda is not None else 0.0
+        mask = self._reg_mask_or_ones()
         for b in range(n_bootstrap):
             idx = rng.choice(n, size=n, replace=True)
             X_b, y_b = X_boot_source[idx], y[idx]
-
-            # Fit the same model type on the bootstrap sample
-            if self.estimator == "logistic":
-                if _HAS_SK:
-                    lam = float(self._lambda) if self._lambda is not None else 0.0
-                    n_b = X_b.shape[0]
-                    C_val = 1.0 / (n_b * lam) if lam > 0 else 1e6
-                    model = LogisticRegression(
-                        C=C_val, fit_intercept=False,
-                        solver="lbfgs", l1_ratio=0, max_iter=1000
-                    )
-                    try:
-                        model.fit(X_b, y_b)
-                        coef = model.coef_.ravel()
-                        boot_coefs[b] = coef[1:] if self.fit_intercept else coef
-                    except Exception:
-                        boot_coefs[b] = self.coef_
+            try:
+                if self.estimator == "logistic":
+                    coef, _L, _w = self._fit_logistic_l2(X_b, y_b, lam, mask, theta_init=self._theta_hat)
                 else:
-                    boot_coefs[b] = self.coef_
-            else:
-                lam = float(self._lambda) if self._lambda is not None else 0.0
-                if _HAS_SK:
-                    n_b = X_b.shape[0]
-                    model = Ridge(alpha=n_b * lam, fit_intercept=False)
-                    model.fit(X_b, y_b)
-                    coef = model.coef_.ravel()
-                    boot_coefs[b] = coef[1:] if self.fit_intercept else coef
-                else:
-                    A = (X_b.T @ X_b) / n + lam * np.eye(X_b.shape[1])
-                    bvec = (X_b.T @ y_b) / n
-                    coef = np.linalg.solve(A, bvec)
-                    boot_coefs[b] = coef[1:] if self.fit_intercept else coef
+                    coef, _L = self._fit_linear_ridge(X_b, y_b, lam, mask)
+                boot_coefs[b] = coef[1:] if self.fit_intercept else coef
+            except Exception:
+                boot_coefs[b] = self.coef_
 
         boot_mean = np.mean(boot_coefs, axis=0)
         boot_std = np.std(boot_coefs, axis=0)
@@ -2877,10 +2962,10 @@ class RashomonSet:
         seed = self._seed if random_state is None else int(random_state)
         rng = np.random.default_rng(seed)
 
-        # Compute the posterior precision: H_post = n*H - (n-1)*lam*I
+        # Compute the posterior precision: H_post = n*H - (n-1)*lam*diag(mask)
         H = self._hessian_matrix()
         lam_f = float(lam) if lam is not None else 0.0
-        H_posterior = n * H - (n - 1) * lam_f * np.eye(d)
+        H_posterior = n * H - (n - 1) * lam_f * np.diag(self._reg_mask_or_ones())
         # Ensure positive definite (prior keeps it PD)
         eigvals_post = np.linalg.eigvalsh(H_posterior)
         if np.min(eigvals_post) < 1e-10:
