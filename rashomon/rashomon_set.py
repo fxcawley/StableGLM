@@ -29,6 +29,36 @@ def _sigmoid(z: Any) -> Array:
     z = np.asarray(z, dtype=float)
     return np.where(z >= 0, 1.0 / (1.0 + np.exp(-z)), np.exp(z) / (1.0 + np.exp(z)))
 
+def _ess_geyer(chain: Array) -> float:
+    """Effective sample size of a scalar chain (Geyer 1992, initial positive sequence).
+
+    The integrated autocorrelation time is ``tau = -1 + 2 * sum_m G_m`` where
+    ``G_m = rho_{2m} + rho_{2m+1}`` are sums of consecutive autocorrelation pairs; the
+    sum stops at the first non-positive ``G_m`` and the sequence is forced to be
+    non-increasing (initial monotone sequence). ``ESS = n / tau``, capped at ``n``.
+    For an AR(1) chain this reduces to ``n (1 - rho) / (1 + rho)``.
+    """
+    x = np.asarray(chain, dtype=float)
+    n = x.shape[0]
+    x = x - x.mean()
+    var = float(x @ x) / n
+    if n < 4 or var <= 1e-300:
+        return float(n)
+    f = np.fft.rfft(x, 2 * n)
+    acov = np.fft.irfft(f * np.conj(f))[:n] / n
+    rho = acov / acov[0]
+    tau = -1.0
+    prev = np.inf
+    for m in range(n // 2):
+        g = rho[2 * m] + rho[2 * m + 1]
+        if g <= 0.0:
+            break
+        g = min(g, prev)
+        prev = g
+        tau += 2.0 * g
+    tau = max(tau, 1.0 / n)
+    return float(min(n, max(1.0, n / tau)))
+
 
 class _MembershipOracle:
     """Vectorized penalized objective and membership checks.
@@ -1694,23 +1724,11 @@ class RashomonSet:
             except Exception:
                 isotropy_ratio = None
 
-        # ESS per parameter (using simple autocorrelation estimator)
+        # ESS per parameter (Geyer's initial positive sequence estimator)
         ess_per_param = None
         if compute_ess and n_samples >= 10:
             try:
-                ess_vals = np.empty(self._d, dtype=float)
-                for j in range(self._d):
-                    chain = samples[:, j]
-                    # Simple ESS via autocorrelation at lag 1
-                    var_j = np.var(chain)
-                    if var_j > 1e-12:
-                        acf1 = np.corrcoef(chain[:-1], chain[1:])[0, 1]
-                        acf1 = np.clip(acf1, -0.99, 0.99)
-                        ess_j = n_samples * (1 - acf1) / (1 + acf1)
-                        ess_vals[j] = max(1.0, ess_j)
-                    else:
-                        ess_vals[j] = float(n_samples)
-                ess_per_param = ess_vals
+                ess_per_param = np.array([_ess_geyer(samples[:, j]) for j in range(self._d)], dtype=float)
             except Exception:
                 ess_per_param = None
 
