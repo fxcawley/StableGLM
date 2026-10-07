@@ -174,7 +174,6 @@ def test_string_class_labels(cancer):
     "model, match",
     [
         (SVC(), "does not support"),
-        (LogisticRegression(class_weight="balanced", max_iter=2000), "class_weight"),
         (LogisticRegression(penalty="l1", solver="liblinear"), "L2 or unpenalized"),
     ],
 )
@@ -185,6 +184,67 @@ def test_unsupported_models_raise(cancer, model, match):
         model.fit(X, y)
     with pytest.raises((TypeError, ValueError), match=match):
         audit(model, X, y, tolerance=0.02, **_fast())
+
+
+# ----------------------------------------------------------------------- weights
+
+
+def test_sample_weight_reproduces_sklearn(cancer):
+    X, y = cancer
+    rng = np.random.default_rng(3)
+    sw = rng.gamma(2.0, 1.0, size=len(y))
+    model = LogisticRegression(C=0.7, tol=1e-10, max_iter=5000).fit(X, y, sample_weight=sw)
+    report = audit(model, X, y, sample_weight=sw, tolerance=0.02, **_fast())
+    assert report.details["weighted"] is True
+    assert report.details["lambda"] == pytest.approx(1.0 / (0.7 * sw.sum()))
+    assert report.details["coef_max_abs_diff_vs_model"] < 1e-4
+    assert report.details["model_loss_gap"] < 1e-8
+    # forgetting the weights means auditing a different model, and the audit says so
+    with pytest.warns(UserWarning, match="outside the reconstructed Rashomon set"):
+        audit(model, X, y, tolerance=0.001, **_fast())
+
+
+def test_class_weight_reproduces_sklearn(cancer):
+    X, y = cancer
+    balanced = LogisticRegression(C=0.5, class_weight="balanced", tol=1e-10, max_iter=5000).fit(X, y)
+    report = audit(balanced, X, y, tolerance=0.02, **_fast())
+    assert report.details["weighted"] is True
+    assert report.details["coef_max_abs_diff_vs_model"] < 1e-4
+    custom = LogisticRegression(C=0.5, class_weight={0: 3.0, 1: 0.5}, tol=1e-10, max_iter=5000).fit(X, y)
+    report_c = audit(custom, X, y, tolerance=0.02, **_fast())
+    assert report_c.details["coef_max_abs_diff_vs_model"] < 1e-4
+    assert report_c.details["lambda"] == pytest.approx(1.0 / (0.5 * (3.0 * (y == 0).sum() + 0.5 * (y == 1).sum())))
+
+
+def test_class_weight_and_sample_weight_combine(cancer):
+    X, y = cancer
+    rng = np.random.default_rng(4)
+    sw = rng.uniform(0.5, 2.0, size=len(y))
+    model = LogisticRegression(C=1.0, class_weight="balanced", tol=1e-10, max_iter=5000).fit(X, y, sample_weight=sw)
+    report = audit(model, X, y, sample_weight=sw, **_fast())  # default "cv" tolerance also runs weighted
+    assert report.details["coef_max_abs_diff_vs_model"] < 1e-4
+    assert "cross-validated" in report.tolerance_description
+
+
+def test_weighted_ridge(regression_data):
+    X, y = regression_data
+    rng = np.random.default_rng(5)
+    sw = rng.gamma(1.5, 1.0, size=len(y))
+    model = Ridge(alpha=2.0).fit(X, y, sample_weight=sw)
+    report = audit(model, X, y, sample_weight=sw, tolerance=0.05, **_fast())
+    assert report.details["lambda"] == pytest.approx(2.0 / sw.sum())
+    assert report.details["coef_max_abs_diff_vs_model"] < 1e-8
+
+
+def test_invalid_sample_weight(cancer):
+    X, y = cancer
+    model = LogisticRegression(max_iter=2000).fit(X, y)
+    with pytest.raises(ValueError, match="shape"):
+        audit(model, X, y, sample_weight=np.ones(3), tolerance=0.02, **_fast())
+    bad = np.ones(len(y))
+    bad[0] = -1.0
+    with pytest.raises(ValueError, match="non-negative"):
+        audit(model, X, y, sample_weight=bad, tolerance=0.02, **_fast())
 
 
 def test_multiclass_raises():

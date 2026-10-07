@@ -93,6 +93,40 @@ def test_theta_init_and_newton_polish_reach_same_optimum(cancer):
         RashomonSet(estimator="logistic", fit_intercept=True).fit(X, y, theta_init=np.zeros(3))
 
 
+def test_sample_weight_in_core(cancer):
+    X, y = cancer
+    n = len(y)
+    rng = np.random.default_rng(0)
+    sw = rng.gamma(2.0, 1.0, size=n)
+    W = sw.sum()
+    # sklearn with sample_weight: lambda = 1/(C W)  ->  package C = C_sk * W
+    sk = LogisticRegression(C=0.5, tol=1e-10, max_iter=5000).fit(X, y, sample_weight=sw)
+    rs = RashomonSet(estimator="logistic", C=0.5 * W, fit_intercept=True, epsilon=0.01).fit(X, y, sample_weight=sw)
+    assert np.abs(rs.coef_ - sk.coef_.ravel()).max() < 1e-5
+    assert rs.diagnostics()["weighted"] is True
+    # only weight ratios matter
+    rs2 = RashomonSet(estimator="logistic", C=0.5 * W, fit_intercept=True, epsilon=0.01).fit(X, y, sample_weight=7.3 * sw)
+    assert np.abs(rs2._theta_hat - rs._theta_hat).max() < 1e-12
+    assert rs2._epsilon_value == pytest.approx(rs._epsilon_value)
+    # the oracle, Hessian and exact ranges all use the weighted objective
+    assert rs.objective(rs._theta_hat) == pytest.approx(rs._L_hat)
+    H = rs._hessian_matrix()
+    p = 1.0 / (1.0 + np.exp(-(rs._X @ rs._theta_hat)))
+    w = (sw * n / W) * p * (1 - p)
+    assert np.allclose(H[1:, 1:], (X.T @ (X * w[:, None])) / n + (1.0 / (0.5 * W)) * np.eye(10))
+    lo, hi = rs.functional_range(np.eye(11)[1])
+    assert lo < rs._theta_hat[1] < hi
+    # weighted ridge closed form
+    yr = X @ np.arange(1, 11) + rng.normal(size=n)
+    skr = Ridge(alpha=3.0).fit(X, yr, sample_weight=sw)
+    rsr = RashomonSet(estimator="linear", C=W / 3.0, fit_intercept=True, epsilon=0.01).fit(X, yr, sample_weight=sw)
+    assert np.abs(rsr.coef_ - skr.coef_).max() < 1e-9
+    with pytest.raises(ValueError, match="sample_weight"):
+        RashomonSet(estimator="logistic").fit(X, y, sample_weight=np.ones(3))
+    with pytest.raises(ValueError, match="non-negative"):
+        RashomonSet(estimator="logistic").fit(X, y, sample_weight=-np.ones(n))
+
+
 def test_absolute_epsilon_mode(cancer):
     X, y = cancer
     rs = RashomonSet(estimator="logistic", epsilon=0.0042, epsilon_mode="absolute").fit(X, y)

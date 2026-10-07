@@ -30,6 +30,7 @@ from ._sklearn import (
     resolve_feature_names,
     to_numpy,
     unwrap_pipeline,
+    validate_sample_weight,
 )
 from .rashomon_set import RashomonSet, _sigmoid
 
@@ -243,6 +244,7 @@ def audit(
     cv: int = 5,
     method: str = "auto",
     exact_ranges: Union[bool, str] = "auto",
+    sample_weight: Any = None,
     random_state: Optional[int] = None,
     feature_names: Optional[Sequence[str]] = None,
 ) -> StabilityReport:
@@ -288,6 +290,10 @@ def audit(
         over the true set instead of from the sampled models. Costs a few dozen
         Hessian builds per coefficient; ``"auto"`` does it whenever
         ``n * n_features**2 <= 5e6``.
+    sample_weight : array-like of shape (n,), optional
+        The ``sample_weight`` the model was fitted with, if any. ``class_weight`` is
+        read from the model itself. Weights change which models count as equally
+        good (the weighted training loss); row counts in the report stay unweighted.
     random_state : int, optional
     feature_names : sequence of str, optional
         Overrides inferred names.
@@ -307,7 +313,9 @@ def audit(
     if X_arr.ndim != 2:
         raise ValueError("X must be 2-dimensional.")
     n = X_arr.shape[0]
-    spec = describe_sklearn_model(est, n)
+    if to_numpy(y, dtype=None).ravel().shape[0] != n:
+        raise ValueError("X and y must have the same number of rows.")
+    spec = describe_sklearn_model(est, y=y, sample_weight=sample_weight)
     if spec.n_features != X_arr.shape[1]:
         raise ValueError(f"model was fitted on {spec.n_features} features but X has {X_arr.shape[1]}.")
     names = resolve_feature_names(est, X, pipeline_names, spec.n_features, list(feature_names) if feature_names is not None else None)
@@ -318,8 +326,9 @@ def audit(
             raise ValueError("threshold must be a number, None or 'auto'")
         threshold = 0.5 if task == "classification" else None
     notes: List[str] = []
+    user_sw = validate_sample_weight(sample_weight, n)
 
-    eps_value, eps_mode, eps_desc = _resolve_tolerance(tolerance, est, X_arr, y, y_enc, spec, cv, random_state)
+    eps_value, eps_mode, eps_desc = _resolve_tolerance(tolerance, est, X_arr, y, y_enc, spec, cv, random_state, user_sw)
 
     rs = RashomonSet(
         estimator=spec.estimator,
@@ -330,7 +339,7 @@ def audit(
         epsilon_mode=eps_mode,
         sampler="hitandrun",
         random_state=random_state,
-    ).fit(X_arr, y_enc, theta_init=spec.theta)
+    ).fit(X_arr, y_enc, theta_init=spec.theta, sample_weight=spec.sample_weight)
     assert rs._theta_hat is not None and rs._epsilon_value is not None and rs._L_hat is not None
     eps = float(rs._epsilon_value)
 
@@ -423,6 +432,7 @@ def audit(
         "epsilon": eps,
         "epsilon_mode": eps_mode,
         "lambda": rs._lambda,
+        "weighted": spec.sample_weight is not None,
         "sampled_coefficient_ranges": np.c_[samples[:, offset:].min(axis=0), samples[:, offset:].max(axis=0)],
         "coef_max_abs_diff_vs_model": coef_diff,
         "model_loss_gap": user_gap,
@@ -520,19 +530,34 @@ def _reliability_label(ess_min: Optional[float]) -> str:
     return "unreliable (increase n_samples)"
 
 
-def _heldout_loss(spec: LinearModelSpec, fitted: Any, X_te: Array, y_te: Array) -> float:
-    """Mean data loss of a refitted model on held-out rows, in the audited objective's units."""
+def _heldout_loss(spec: LinearModelSpec, fitted: Any, X_te: Array, y_te: Array, w_te: Optional[Array]) -> float:
+    """Weighted mean data loss of a refitted model on held-out rows, in the audited objective's units."""
     if spec.estimator == "logistic":
         z = np.ravel(fitted.decision_function(X_te))
-        return float(np.mean(np.logaddexp(0.0, z) - y_te * z))
-    pred = np.ravel(fitted.predict(X_te))
-    return float(0.5 * np.mean((y_te - pred) ** 2))
+        per_row = np.logaddexp(0.0, z) - y_te * z
+    else:
+        per_row = 0.5 * (y_te - np.ravel(fitted.predict(X_te))) ** 2
+    if w_te is None:
+        return float(np.mean(per_row))
+    return float(np.sum(w_te * per_row) / np.sum(w_te))
 
 
 def cv_loss_standard_error(
-    est: Any, X: Array, y_raw: Any, y_enc: Array, spec: LinearModelSpec, cv: int, random_state: Optional[int]
+    est: Any,
+    X: Array,
+    y_raw: Any,
+    y_enc: Array,
+    spec: LinearModelSpec,
+    cv: int,
+    random_state: Optional[int],
+    sample_weight: Optional[Array] = None,
 ) -> Tuple[float, float]:
-    """(standard error, mean) of the held-out loss across ``cv`` folds, refitting a clone of ``est``."""
+    """(standard error, mean) of the held-out loss across ``cv`` folds, refitting a clone of ``est``.
+
+    Clones are refitted with the user's ``sample_weight`` (``class_weight`` travels with
+    the estimator); held-out losses are averaged with the effective weights
+    ``spec.sample_weight`` so they are in the audited objective's units.
+    """
     if cv < 2:
         raise ValueError("cv must be at least 2")
     y_fit = to_numpy(y_raw, dtype=None)
@@ -541,10 +566,14 @@ def cv_loss_standard_error(
         splitter = StratifiedKFold(n_splits=cv, shuffle=True, random_state=random_state)
     else:
         splitter = KFold(n_splits=cv, shuffle=True, random_state=random_state)
+    eff = spec.sample_weight
     losses = []
     for tr, te in splitter.split(X, y_fit if spec.estimator == "logistic" else None):
-        fitted = clone(est).fit(X[tr], y_fit[tr])
-        losses.append(_heldout_loss(spec, fitted, X[te], y_enc[te]))
+        if sample_weight is None:
+            fitted = clone(est).fit(X[tr], y_fit[tr])
+        else:
+            fitted = clone(est).fit(X[tr], y_fit[tr], sample_weight=sample_weight[tr])
+        losses.append(_heldout_loss(spec, fitted, X[te], y_enc[te], None if eff is None else eff[te]))
     arr = np.asarray(losses, dtype=float)
     return float(np.std(arr, ddof=1) / np.sqrt(cv)), float(np.mean(arr))
 
@@ -558,12 +587,13 @@ def _resolve_tolerance(
     spec: LinearModelSpec,
     cv: int,
     random_state: Optional[int],
+    sample_weight: Optional[Array] = None,
 ) -> Tuple[float, str, str]:
     """Return (epsilon, epsilon_mode, human description)."""
     if isinstance(tolerance, str):
         key, alpha = tolerance.lower(), 0.05
         if key == "cv":
-            se, mean_loss = cv_loss_standard_error(est, X, y_raw, y_enc, spec, cv, random_state)
+            se, mean_loss = cv_loss_standard_error(est, X, y_raw, y_enc, spec, cv, random_state, sample_weight)
             if not np.isfinite(se) or se <= 0.0:
                 warnings.warn("Cross-validated loss has zero spread; falling back to tolerance=0.01.", stacklevel=3)
                 return 0.01, "percent_loss", "1% of the optimal training loss (CV standard error was zero)"
