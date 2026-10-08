@@ -46,7 +46,7 @@ The model is 95% accurate. Still, one diagnosis in six is reversed by some model
 ## Install
 
 ```bash
-pip install rashomon-py          # Python 3.9+; depends on numpy, scipy, scikit-learn, pandas, matplotlib
+pip install rashomon-py          # Python 3.10+; depends on numpy, scipy, scikit-learn, pandas, matplotlib
 ```
 
 ## How this differs from a confidence interval

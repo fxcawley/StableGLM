@@ -2,7 +2,7 @@
 
 ## Environment
 
-Use Python 3.9 or newer and install the project with its development dependencies:
+Use Python 3.10 or newer and install the project with its development dependencies:
 
 ```bash
 python -m pip install -U pip

@@ -16,6 +16,7 @@ python -m mypy rashomon --ignore-missing-imports
 python -m sphinx -W -b html docs docs/_build/html # CI builds docs with -W
 python scripts/verify_tutorial_claims.py          # CI re-derives the numbers quoted in docs/examples/tutorial.md
 python scripts/generate_readme_figure.py          # regenerates README output + docs/_static/audit_breast_cancer.png
+python scripts/evaluate.py                        # ~15 min; regenerates docs/_static/evaluation.json and the tables in docs/evaluation.md
 ```
 
 Run scripts from the repo root with `PYTHONPATH=.` unless the package is installed with `pip install -e .`.
@@ -28,7 +29,11 @@ Run scripts from the repo root with `PYTHONPATH=.` unless the package is install
 - `RashomonSet` penalizes the intercept only if `penalize_intercept=True`; `C=np.inf` means λ = 0.
 - Line endings are mixed in the index (some files CRLF, some LF; `core.autocrlf=true` locally). When
   rewriting a file programmatically, keep its existing line endings or the diff becomes the whole file.
-- `devnotes/` and `.cognition/` are gitignored local artifacts, not documentation.
+- `devnotes/` and `.cognition/` are gitignored local artifacts, not documentation. The `bug-verification` skill
+  under `.cognition/skills` belongs to a different project and does not apply here.
+- `examples/stability_audit.ipynb` is executed by `tests/test_examples.py`; keep it working when the API changes.
+- Quantities that are extremes over the set (coefficient ranges, flips) are computed exactly; only non-extreme
+  quantities (disagreement, prediction ranges) come from samples. Keep that split when adding features.
 
 ## Releasing
 

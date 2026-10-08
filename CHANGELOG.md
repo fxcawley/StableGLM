@@ -5,6 +5,58 @@ All notable changes to rashomon-py will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - Unreleased
+
+Robustness pass over the existing scope before widening it.
+
+### Added
+
+- `scripts/evaluate.py` and a rewritten evaluation page comparing exact, sampled and
+  ellipsoid quantities on four real datasets (d = 10 to 101). Sampled coefficient
+  ranges cover 75% of the exact range at d = 10 and 20% at d = 101; sampled flip rates
+  are a third to a quarter of the exact ones on the larger sets; the Hessian ellipsoid
+  is within a few percent of exact at tolerances of 1-3% of the loss.
+- Sparse `X` (scipy.sparse) is densified up to 20 million entries; larger inputs get an
+  explanatory error.
+- `audit()` and `from_sklearn` raise if `X` has column names that differ from the ones
+  the model was fitted on (a reordered DataFrame would otherwise audit the wrong model).
+- `RashomonSet.can_flip(..., coef_box=...)` screens rows with the exact coefficient box
+  before optimising; `min_loss_on_hyperplane(..., theta0=...)` accepts a warm start.
+- The report header says `(weighted)` when weights are in use, and a note reports an
+  ill-conditioned Hessian.
+- The example notebook is rewritten around `audit()` and executed by the test suite.
+
+### Changed
+
+- The exact flip test starts from the quadratic model's minimiser on the hyperplane and
+  settles rows already inside the set with one vectorised loss evaluation; 4-5x faster
+  on large problems (about 45 s at n = 5,000, d = 101). The automatic gate is now
+  `n_undecided * n * d^2 <= 2e10`, and the note for larger problems estimates the cost
+  of `exact_flips=True`.
+- Hessian conditioning: condition numbers between 1e8 and 1e12 warn instead of raising
+  (unstandardized features typically land here), above 1e12 the error explains the
+  cause (collinear or constant features without a penalty, or wildly different scales)
+  and the remedy.
+- Membership tests use a floating-point slack of `min(tol, 1e-3 * epsilon)` instead of
+  the absolute `tol`, which inflated very small sets.
+- `_sigmoid` no longer evaluates `exp` of large positive arguments (spurious overflow
+  warnings).
+- Hit-and-run with `ellipsoid_mix > 0` falls back to plain hit-and-run when the Hessian
+  is not numerically SPD, and the step-cap error explains that the set is too small to
+  resolve.
+- `python_requires` is now `>= 3.10`; 3.9 was never tested in CI and is end-of-life.
+- `scripts/benchmark_scale.py` passed scikit-learn's `C` straight to `RashomonSet`
+  (which expects `C * n`); fixed, and the script is marked as superseded.
+
+### Fixed
+
+- `variable_importance_cloud`, `shapley_vic` and `compare_to_bootstrap` accept feature
+  names of the features alone (the intercept label is prepended) as well as of all
+  coordinates. `compare_to_bootstrap` labelled feature-level results with the
+  coordinate names, which were off by one when an intercept was fitted.
+- The example notebook called attributes that did not exist (`epsilon_`, `vic["min"]`,
+  `comp["comparison"]`).
+
 ## [0.3.1] - 2026-10-07
 
 ### Added
@@ -152,6 +204,7 @@ First public release.
 L2-regularized logistic and linear regression only. No trees, neural nets,
 L1 penalties, or arbitrary estimators.
 
+[0.3.2]: https://github.com/fxcawley/StableGLM/compare/v0.3.1...HEAD
 [0.3.1]: https://github.com/fxcawley/StableGLM/releases/tag/v0.3.1
 [0.3.0]: https://github.com/fxcawley/StableGLM/releases/tag/v0.3.0
 [0.2.0]: https://github.com/fxcawley/StableGLM/releases/tag/v0.2.0
