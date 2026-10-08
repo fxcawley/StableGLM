@@ -1,5 +1,9 @@
 """Benchmark: scaling, tightness, and certificate calibration on real datasets.
 
+Superseded by scripts/evaluate.py, which audits the fitted scikit-learn model through
+audit() and compares exact, sampled and ellipsoid quantities; this script is kept for
+its data loaders. Note that RashomonSet.C is scikit-learn's C times n.
+
 Datasets (all real):
 - Breast Cancer PCA-10 (n=569, d=10) -- tight certificates
 - Breast Cancer full (n=569, d=30) -- moderate tightness
@@ -100,7 +104,7 @@ def run_dataset(name: str, X: np.ndarray, y: np.ndarray, C: float,
 
     t0 = time.perf_counter()
     rs = RashomonSet(
-        estimator="logistic", C=C, epsilon=0.03,
+        estimator="logistic", C=C * n, epsilon=0.03,
         epsilon_mode="percent_loss", sampler="hitandrun",
         random_state=42, safety_override=True,
     ).fit(X, y)
@@ -167,7 +171,7 @@ def run_tightness(name: str, X: np.ndarray, y: np.ndarray, C: float) -> None:
     X_test = X_sub[:200]
     for eps in epsilons:
         rs = RashomonSet(
-            estimator="logistic", C=C, epsilon=eps,
+            estimator="logistic", C=C * X_sub.shape[0], epsilon=eps,
             epsilon_mode="percent_loss", random_state=42,
             safety_override=True,
         ).fit(X_sub, y_sub)
@@ -195,7 +199,7 @@ def run_cert_calibration(name: str, X: np.ndarray, y: np.ndarray, C: float,
     print(f"    {'-'*38}")
     for eps in epsilons:
         rs = RashomonSet(
-            estimator="logistic", C=C, epsilon=eps,
+            estimator="logistic", C=C * min(n, 2000), epsilon=eps,
             epsilon_mode="percent_loss", random_state=42,
             safety_override=True,
         ).fit(X[:min(n, 2000)], y[:min(n, 2000)])

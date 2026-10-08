@@ -16,16 +16,9 @@ $$\mathcal{E}_\varepsilon = \bigl\{\hat\theta + \Delta : \Delta^\top H \Delta \l
 
 where $H = \nabla^2 L(\hat\theta)$ is the Hessian at the optimum. For any linear functional $s^\top\theta$ (a single coefficient, a linear combination corresponding to a prediction at a particular point), the extrema over $\mathcal{E}_\varepsilon$ have closed forms involving $\lVert s \rVert_{H^{-1}}$. This makes coefficient intervals, prediction bands, and ambiguity bounds available in milliseconds regardless of dimensionality.
 
-The ellipsoidal pathway is best understood as a fast Hessian-based screening approximation. The question is how conservative this approximation is. The tightness ratio (ellipsoidal interval width divided by empirical width from hit-and-run sampling) varies with dimensionality in a consistent pattern:
+The ellipsoid is an approximation, not a bound: the true set can extend beyond it in some directions and fall short of it in others. In practice it is close. In the {doc}`evaluation <../evaluation>` on four real datasets (d from 10 to 101, tolerances of 1–3% of the loss and the `"cv"` default), the ellipsoid coefficient intervals are within 1% of the exact ranges in most cases and within 24% in the worst coordinate, and its flip screen is within a few points of the exact flip rate. It overestimates when the tolerance is a large fraction of the loss (36% vs 24% flips at a tolerance of 34% of the loss), where the quadratic model of the loss is no longer accurate.
 
-| Dataset | $d$ | Tightness ratio | Assessment |
-|:--------|----:|:---------------:|:-----------|
-| Breast Cancer PCA-10 | 10 | 1.3--1.6x | Tight. The approximation tracks sampling closely. |
-| Breast Cancer Full | 30 | 2.8--3.7x | Reasonably tight. Useful for screening. |
-| German Credit | 61 | 4.4--6.2x | Moderate. Useful as a conservative screen. |
-| Adult Census | 104 | 8.2--12.3x | Conservative. Sampling diagnostics dominate interpretation. |
-
-This is expected. The ellipsoidal approximation becomes less accurate as the loss surface deviates from quadratic further from the optimum, and higher-dimensional sets have more room for the true sublevel set to differ from the ellipsoidal shape.
+An earlier version of this page reported the ellipsoid as 4–8x too wide at d = 61–104. That comparison used sampled widths as the reference, and sampled widths understate the true range (see below); against the exact ranges the ellipsoid is close at every dimension tested.
 
 ## Hit-and-run sampling
 
@@ -43,15 +36,17 @@ print(f"Min ESS: {diag['ess_per_param'].min():.0f}")
 
 Plain hit-and-run moves along one direction per step, so coordinate autocorrelation is about $1 - 1/d$ and the ESS per step is of order $1/d$: about 40 effective draws per 1000 steps at $d = 11$. The `ellipsoid_mix` option (used by `audit()`) replaces a fraction of the steps with independence proposals drawn uniformly from the Hessian ellipsoid. A proposal is accepted when it lies in the set and the current point lies in the ellipsoid. That is the Metropolis-Hastings ratio for a uniform target, so the chain still samples the exact set. In low to moderate dimension most of the ellipsoid lies inside the set (over 80% of its volume on the breast-cancer example), so most proposals are accepted and the ESS per step improves by about a factor of $d$: around 400 effective draws per 1000 steps at $d = 11$. In high dimension proposals are rarely accepted and the chain behaves like plain hit-and-run.
 
-`audit()` labels the result: min ESS above 100 is "reliable", 30 to 100 "fair", below 30 "unreliable". At $d = 104$ with 500 plain hit-and-run samples, ESS is in the single digits and the sampled quantities should not be trusted. Exact coefficient ranges remain valid there.
+`audit()` labels the result: min ESS above 100 is "reliable", 30 to 100 "fair", below 30 "unreliable". At $d = 101$ even 2,000 hybrid draws give an ESS of 4–6, and the sampled quantities should not be read as estimates. Exact coefficient ranges and exact flips are unaffected.
+
+Sampled extremes understate even when the chain mixes well. With 2,000 draws the sampled coefficient ranges cover about 75% of the exact range at d = 10, half at d = 30, 40% at d = 61 and 20% at d = 101; sampled flip rates are a third to a quarter of the exact ones on the larger sets. A sample of the set is not a sample of its boundary.
 
 ## Practical guidance
 
-For $d \leq 30$ or so, the ellipsoidal approximation is sufficient for many screening purposes. It is fast, deterministic, and the tightness ratio is small enough that the results are informative. If the ellipsoidal ambiguity estimate is zero, the model is stable under that approximation at this $\varepsilon$ and sampling is a confirmation step rather than a first pass.
+Quantities that are extremes over the set (coefficient ranges, sign stability, whether a row can flip) should be computed exactly. `audit()` does this by default whenever the problem size allows, and the costs are modest: under a second for d ≤ 30, under a minute for n = 5,000 and d = 101.
 
-For $d > 60$, the ellipsoidal approximation is conservative enough that its value as a point estimate is limited. Hit-and-run sampling is necessary for sharper empirical estimates, but long chains (1000+ samples) are needed for adequate ESS, and the computational cost grows accordingly.
+Sampling is the right tool for quantities that are *not* extremes of a linear functional, such as the disagreement of a single model with yours, and for a picture of the whole set (prediction ranges). Read these through the effective sample size; they are lower bounds.
 
-The intermediate range ($30 < d < 60$) requires judgment. Running the ellipsoidal approximation first is always worthwhile because it is cheap. If the ellipsoidal ambiguity estimate is substantially above zero and the application requires precise numbers, supplementing with sampling is advisable.
+The ellipsoid is a fast screen that is close to exact at tolerances of a few percent of the loss. It is what `method="ellipsoid"` uses in `audit()` and what `hacking_interval` / `coef_intervals` return.
 
 ## References
 

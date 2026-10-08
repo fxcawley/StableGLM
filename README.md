@@ -79,11 +79,11 @@ The CV default is permissive, so expect larger sets than with a 1% rule. Results
 | `tolerance` | the loss gap defining the set | ε in the ε-Rashomon set (Fisher, Rudin & Dominici 2019) |
 | `rashomon_set`, `samples` | the underlying `RashomonSet` and the sampled parameter vectors | |
 
-Coefficient ranges and the flip test are exact: each coefficient range is the solution of a convex program over the true set, and each row not already flipped by a sampled model is settled by one more convex program (automatic when the problem is small enough: `n · d² ≤ 5·10⁶` for ranges, `n_undecided · n · d² ≤ 10⁹` for flips; force with `exact_ranges=True` / `exact_flips=True`). The disagreement figure and the prediction ranges come from models sampled from the exact set, so they are lower bounds that tighten as `n_samples` grows. The report states the effective sample size and whether it is reliable.
+Coefficient ranges and the flip test are exact: each coefficient range is the solution of a convex program over the true set, and each row not already flipped by a sampled model is settled by one more convex program (automatic when the problem is small enough: `n · d² ≤ 5·10⁶` for ranges, `n_undecided · n · d² ≤ 2·10¹⁰` for flips; force with `exact_ranges=True` / `exact_flips=True`). The disagreement figure and the prediction ranges come from models sampled from the exact set, so they are lower bounds that tighten as `n_samples` grows. The report states the effective sample size and whether it is reliable.
 
 ## Validation
 
-For an unpenalized logistic regression, the range of a coefficient over the Rashomon set with tolerance χ²₁(0.95)/(2n) is by definition its 95% profile-likelihood confidence interval, so the exact-range machinery can be checked against a standard statistical result. On the UCLA graduate-admissions data (`admit ~ gre + gpa + rank`, n = 400), `coef_extremes()` reproduces all twelve bounds of R's `confint()` output to within 1e-4 (R's own interpolation precision) and the MLE to 5e-7; the test also agrees with an independent profile root-finder to 2e-6. A second test grids a two-dimensional Rashomon set and checks the exact ranges, the exact flip test and the sampler's moments against brute force. See `tests/test_validation.py`.
+For an unpenalized logistic regression, the range of a coefficient over the Rashomon set with tolerance χ²₁(0.95)/(2n) is by definition its 95% profile-likelihood confidence interval, so the exact-range machinery can be checked against a standard statistical result. On the UCLA graduate-admissions data (`admit ~ gre + gpa + rank`, n = 400), `coef_extremes()` reproduces all twelve bounds of R's `confint()` output to within 1e-4 (R's own interpolation precision) and the MLE to 5e-7; the test also agrees with an independent profile root-finder to 2e-6. A second test grids a two-dimensional Rashomon set and checks the exact ranges, the exact flip test and the sampler's moments against brute force. See `tests/test_validation.py`. The [evaluation](https://fxcawley.github.io/StableGLM/evaluation.html) compares exact, sampled and ellipsoid quantities on four real datasets.
 
 ## Supported models
 
@@ -91,7 +91,7 @@ For an unpenalized logistic regression, the range of a coefficient over the Rash
 
 Not supported: multiclass (planned), L1 and elastic-net penalties (the level set of a non-smooth objective is not a convex set of the same kind), trees, neural networks. The method needs a convex, twice-differentiable loss, so other L2-penalized GLMs (Poisson, multinomial) are possible extensions.
 
-The method works in small to moderate dimension. Hit-and-run sampling mixes well up to a few dozen features. Above about 60 features the report will show a low effective sample size; reduce the dimension or sample longer. Exact coefficient ranges do not depend on sampling.
+Coefficient ranges and flips are exact, so dimension affects their cost, not their validity (about a minute at n = 5,000 and d = 101). The sampled quantities depend on the hit-and-run chain mixing, which it does well up to a few dozen features and poorly beyond about 60; the report's effective sample size says which case applies. Sampled extremes understate: with 2,000 draws they cover about half the exact coefficient range at d = 30 and a fifth at d = 100, which is why the exact computations are the default. See the [evaluation](https://fxcawley.github.io/StableGLM/evaluation.html).
 
 ## Expert API
 

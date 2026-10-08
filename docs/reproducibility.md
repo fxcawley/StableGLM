@@ -23,7 +23,7 @@ rs = RashomonSet(estimator="logistic", epsilon=0.03, random_state=0).fit(X, y)
 diag = rs.diagnostics()
 ```
 
-Numerical results may vary slightly across BLAS implementations and platform libraries. Interpret MCMC estimates through the reported effective sample size and set-fidelity diagnostics rather than expecting bitwise equality.
+Numerical results may vary slightly across BLAS implementations and platform libraries. Interpret sampled estimates through the reported effective sample size rather than expecting bitwise equality; the exact quantities (coefficient ranges, flips) are deterministic up to solver tolerance.
 
 ## Data
 
@@ -33,7 +33,7 @@ Large raw datasets are not committed to the repository. The Adult Census integra
 python scripts/download_data.py
 ```
 
-The benchmark script will fetch or cache other public datasets as needed.
+The evaluation script (`python scripts/evaluate.py`) fetches and caches the German Credit data from OpenML on first use and skips the Adult rows when `adult.data` is absent. It writes `docs/_static/evaluation.json` and prints the tables in the evaluation page.
 
 ## Verification
 

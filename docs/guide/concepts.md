@@ -29,10 +29,11 @@ explicit: $\epsilon = \chi^2_{d,1-\alpha} / (2n)$ via Wilks' theorem.
 - **Large $\epsilon$**: permissive set, includes models with meaningfully higher loss.
   Results may overstate instability.
 
-rashomon-py supports three calibration modes:
+`RashomonSet` supports four calibration modes (`audit()` exposes them through its `tolerance` argument; see {doc}`choosing_epsilon`):
 - `percent_loss`: $\epsilon = \rho \cdot L(\hat{\theta})$ for a user-specified $\rho$
 - `LR_alpha`: $\epsilon = \chi^2_{d,1-\alpha} / (2n)$ via Wilks' theorem
 - `LR_alpha_highdim`: high-dimensional correction (experimental)
+- `absolute`: $\epsilon$ given directly, in the units of the loss (used by the `"cv"` and `("profile", alpha)` tolerances)
 
 ## Three Kinds of Uncertainty
 
