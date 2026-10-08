@@ -1367,8 +1367,14 @@ class RashomonSet:
                 break
         return float(s @ best_theta)
 
+    def _hinv(self, V: Array) -> Array:
+        """``H⁻¹ V`` through the cached Cholesky factor (``V`` of shape (d,) or (d, m))."""
+        L = self._hessian_cholesky()
+        if _HAS_SCIPY:
+            return np.asarray(solve_triangular(L.T, solve_triangular(L, V, lower=True), lower=False), dtype=float)
+        return np.linalg.solve(L.T, np.linalg.solve(L, V))
 
-    def min_loss_on_hyperplane(self, s: Array, c: float) -> float:
+    def min_loss_on_hyperplane(self, s: Array, c: float, theta0: Optional[Array] = None) -> float:
         """Exact ``min L(θ)`` subject to ``sᵀθ = c``.
 
         Used to decide whether a prediction can cross a threshold: for a row ``x`` with
@@ -1376,7 +1382,9 @@ class RashomonSet:
         ``min_{xᵀθ = τ} L(θ) ≤ L(θ̂) + ε`` (by convexity the set meets the hyperplane iff
         it contains a point on it). For linear models the minimum has a closed form;
         for logistic models it is found by Newton's method on the hyperplane
-        (a KKT system per step) with Armijo backtracking.
+        (a KKT system per step) with Armijo backtracking, started from ``theta0`` if
+        given (must satisfy the constraint) and otherwise from the minimiser of the
+        quadratic model of the loss on the hyperplane.
         """
         if not self._fitted or self._theta_hat is None or self._L_hat is None or self._lambda is None:
             raise RuntimeError("Call fit() first.")
@@ -1389,20 +1397,20 @@ class RashomonSet:
             return float(self._L_hat)
         if float(s @ s) == 0.0:
             return np.inf  # the functional is identically 0 != c: the hyperplane is empty
+        hinv_s = self._hinv(s)
+        quad = float(s @ hinv_s)
         if self.estimator == "linear":
             # L(θ) - L̂ = ½ (θ-θ̂)ᵀ H (θ-θ̂); the minimum on the hyperplane is ½ gap² / sᵀH⁻¹s.
-            L = self._hessian_cholesky()
-            if _HAS_SCIPY:
-                hinv_s = solve_triangular(L.T, solve_triangular(L, s, lower=True), lower=False)
-            else:
-                hinv_s = np.linalg.solve(L.T, np.linalg.solve(L, s))
-            quad = float(s @ hinv_s)
             return float(self._L_hat) + (0.5 * gap * gap / quad if quad > 0 else np.inf)
         assert self._X is not None and self._y is not None
         X, y, lam, mask, sw = self._X, self._y, float(self._lambda), self._reg_mask_or_ones(), self._sw_or_ones()
         n, d = X.shape
-        # feasible start: project θ̂ onto the hyperplane
-        theta = theta_hat + s * (gap / float(s @ s))
+        if theta0 is not None:
+            theta = np.array(theta0, dtype=float)
+        elif quad > 0:
+            theta = theta_hat + hinv_s * (gap / quad)  # quadratic-model minimiser on the hyperplane
+        else:
+            theta = theta_hat + s * (gap / float(s @ s))  # Euclidean projection
         L_curr = self._logistic_loss(X, y, theta, lam, mask, sw)
         gtol = min(self.tol, 1e-8)
         K = np.zeros((d + 1, d + 1))
@@ -1442,14 +1450,47 @@ class RashomonSet:
             theta, L_curr = theta_new, L_new
         return float(L_curr)
 
+    def _hyperplane_flip_tests(self, S: Array, c: float, target: float, chunk: int = 512) -> Array:
+        """Decide ``min_{sᵢᵀθ = c} L(θ) ≤ target`` for many rows at once (logistic models).
 
-    def can_flip(self, X: Array, tau: float = 0.0) -> Array:
+        The quadratic model's minimiser on each hyperplane, ``θ̂ + gap·H⁻¹s / sᵀH⁻¹s``, is a
+        feasible point, so its loss is an upper bound on the minimum: one vectorised
+        loss evaluation settles every row for which it is already inside the set. The
+        remaining rows are solved exactly by :meth:`min_loss_on_hyperplane`, warm-started
+        from that point (usually two Newton steps).
+        """
+        assert self._X is not None and self._y is not None and self._theta_hat is not None
+        assert self._lambda is not None
+        X, y, lam, mask, sw = self._X, self._y, float(self._lambda), self._reg_mask_or_ones(), self._sw_or_ones()
+        theta_hat = self._theta_hat
+        out = np.zeros(S.shape[0], dtype=bool)
+        for start in range(0, S.shape[0], chunk):
+            Sc = S[start:start + chunk]
+            gap = c - Sc @ theta_hat
+            U = self._hinv(Sc.T)  # H^{-1} s_i, (d, m)
+            denom = np.sum(Sc.T * U, axis=0)  # s_i^T H^{-1} s_i
+            Theta = theta_hat[None, :] + (U * (gap / denom)[None, :]).T
+            Z = X @ Theta.T
+            L_q = np.mean(sw[:, None] * (np.logaddexp(0.0, Z) - y[:, None] * Z), axis=0)
+            L_q += 0.5 * lam * np.sum(Theta * Theta * mask[None, :], axis=1)
+            flip = L_q <= target
+            for j in np.flatnonzero(~flip):
+                flip[j] = self.min_loss_on_hyperplane(Sc[j], c, theta0=Theta[j]) <= target
+            out[start:start + chunk] = flip
+        return out
+
+    def can_flip(self, X: Array, tau: float = 0.0, coef_box: Optional[Array] = None) -> Array:
         """Exact per-row test: can some model in the set put row ``i`` on the other side of ``tau``?
 
         Returns a boolean array over the rows of ``X`` (raw features; the intercept is
         handled internally). Rows exactly on the threshold under θ̂ count as flippable.
-        Rows that the strong-convexity bound ``|xᵀ(θ-θ̂)| ≤ ||x|| sqrt(2ε/λ)`` rules out are
-        skipped without an optimization.
+
+        Two rigorous screens avoid most optimisations: the strong-convexity bound
+        ``|xᵀ(θ-θ̂)| ≤ ||x|| sqrt(2ε/λ)`` and, if ``coef_box`` (the exact per-coordinate
+        ranges from :meth:`coef_extremes`, shape (d, 2)) is given, the fact that the set
+        lies inside that box, so ``xᵀθ`` cannot reach ``tau`` if no point of the box does.
+        The rest are decided by the hyperplane minimum (closed form for linear models,
+        :meth:`_hyperplane_flip_tests` for logistic).
         """
         if not self._fitted or self._theta_hat is None or self._epsilon_value is None or self._L_hat is None:
             raise RuntimeError("Call fit() first.")
@@ -1457,18 +1498,29 @@ class RashomonSet:
         scores = Xa @ self._theta_hat
         eps = float(self._epsilon_value)
         target = float(self._L_hat) + eps + self._membership_slack()
-        out = np.zeros(Xa.shape[0], dtype=bool)
+        margin = scores - tau
+        out = margin == 0.0
         lam = float(self._lambda) if self._lambda is not None else 0.0
         penalized_all = bool(self._reg_mask is None or np.all(self._reg_mask > 0))
         radius = np.sqrt(2.0 * eps / lam) if (lam > 0.0 and penalized_all) else np.inf
-        for i in range(Xa.shape[0]):
-            margin = scores[i] - tau
-            if margin == 0.0:
-                out[i] = True
-                continue
-            if abs(margin) > radius * float(np.linalg.norm(Xa[i])):
-                continue
-            out[i] = self.min_loss_on_hyperplane(Xa[i], tau) <= target
+        norms = np.linalg.norm(Xa, axis=1)
+        candidate = ~out & (np.abs(margin) <= radius * norms) & (norms > 0)
+        if coef_box is not None:
+            box = np.asarray(coef_box, dtype=float)
+            if box.shape != (self._d, 2):
+                raise ValueError(f"coef_box must have shape ({self._d}, 2)")
+            # extreme values of xᵀθ over the box: pick lo or hi per coordinate by the sign of x
+            box_min = np.minimum(Xa * box[:, 0], Xa * box[:, 1]).sum(axis=1)
+            box_max = np.maximum(Xa * box[:, 0], Xa * box[:, 1]).sum(axis=1)
+            reachable = np.where(margin > 0, box_min <= tau, box_max >= tau)
+            candidate &= reachable
+        todo = np.flatnonzero(candidate)
+        if todo.size == 0:
+            return out
+        if self.estimator == "linear":
+            out[todo] = np.array([self.min_loss_on_hyperplane(Xa[i], tau) <= target for i in todo])
+        else:
+            out[todo] = self._hyperplane_flip_tests(Xa[todo], tau, target)
         return out
 
     def coef_extremes(self, indices: Optional[Array] = None) -> Array:

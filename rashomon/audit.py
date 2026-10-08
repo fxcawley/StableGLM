@@ -155,7 +155,8 @@ class StabilityReport:
         scan = _scan_predictions(self._rs._prepare_X(X_arr), theta_hat, self._samples, tau)
         use_exact = self.flip_method == "exact" if exact_flips is None else exact_flips
         if tau is not None and use_exact:
-            scan["flipped"] = _exact_flips(self._rs, X_arr, tau, scan["flipped"])
+            box = self.details.get("_coef_box")
+            scan["flipped"] = _exact_flips(self._rs, X_arr, tau, scan["flipped"], box)
         return _ranges_frame(self.task, scan, tau, index=getattr(X, "index", None))
 
     # --------------------------------------------------------------- output
@@ -427,30 +428,14 @@ def audit(
     scores_hat, flipped = scan["scores_hat"], scan["flipped"]
     if exact_flips not in (True, False, "auto"):
         raise ValueError("exact_flips must be True, False or 'auto'")
-    flip_method = "none"
-    if tau is not None:
-        n_undecided = int(np.sum(~flipped))
-        do_exact_flips = exact_flips is True or (
-            exact_flips == "auto" and n_undecided * n * spec.n_features**2 <= 1e9
-        )
-        if do_exact_flips:
-            flipped = _exact_flips(rs, X_arr, tau, flipped)
-            flip_method = "exact"
-        else:
-            flip_method = "sampled"
-            notes.append("flip rate is over sampled models (pass exact_flips=True for the exact test)")
-        flip_rate: Optional[float] = float(np.mean(flipped))
-        n_flipped: Optional[int] = int(np.sum(flipped))
-        max_disagreement: Optional[float] = float(np.max(scan["disagree_counts"]) / n)
-        scan["flipped"] = flipped
-    else:
-        flip_rate = n_flipped = max_disagreement = None
-
-    offset = 1 if spec.fit_intercept else 0
-    coef_hat = rs._theta_hat[offset:]
     if exact_ranges not in (True, False, "auto"):
         raise ValueError("exact_ranges must be True, False or 'auto'")
+
+    # Coefficient ranges first: the exact box also screens rows in the flip test.
+    offset = 1 if spec.fit_intercept else 0
+    coef_hat = rs._theta_hat[offset:]
     do_exact = exact_ranges is True or (exact_ranges == "auto" and n * spec.n_features**2 <= 5e6)
+    extremes: Optional[Array] = None
     if do_exact:
         extremes = rs.coef_extremes()
         low, high = extremes[offset:, 0], extremes[offset:, 1]
@@ -460,6 +445,27 @@ def audit(
         high = samples[:, offset:].max(axis=0)
         coefficient_ranges = "sampled"
         notes.append("coefficient ranges are over sampled models (pass exact_ranges=True for exact ranges)")
+
+    flip_method = "none"
+    if tau is not None:
+        n_undecided = int(np.sum(~flipped))
+        work = n_undecided * n * spec.n_features**2  # ~ Hessian builds for the exact test
+        do_exact_flips = exact_flips is True or (exact_flips == "auto" and work <= 2e10)
+        if do_exact_flips:
+            flipped = _exact_flips(rs, X_arr, tau, flipped, extremes)
+            flip_method = "exact"
+        else:
+            flip_method = "sampled"
+            notes.append(
+                "flip rate is over sampled models; the exact test would need roughly "
+                f"{max(1.0, work / 4e9):.0f} s (pass exact_flips=True)"
+            )
+        flip_rate: Optional[float] = float(np.mean(flipped))
+        n_flipped: Optional[int] = int(np.sum(flipped))
+        max_disagreement: Optional[float] = float(np.max(scan["disagree_counts"]) / n)
+        scan["flipped"] = flipped
+    else:
+        flip_rate = n_flipped = max_disagreement = None
     coefficients = pd.DataFrame(
         {"estimate": coef_hat, "low": np.minimum(low, coef_hat), "high": np.maximum(high, coef_hat)},
         index=pd.Index(names, name="feature"),
@@ -467,7 +473,7 @@ def audit(
     coefficients["sign_stable"] = (coefficients["low"] > 0) | (coefficients["high"] < 0)
     intercept = float(rs._theta_hat[0]) if spec.fit_intercept else None
     if spec.fit_intercept:
-        intercept_range = (float(extremes[0, 0]), float(extremes[0, 1])) if do_exact else (
+        intercept_range = (float(extremes[0, 0]), float(extremes[0, 1])) if extremes is not None else (
             float(samples[:, 0].min()),
             float(samples[:, 0].max()),
         )
@@ -487,6 +493,7 @@ def audit(
         "sampler_diagnostics": diag,
         "notes": notes,
         "_preprocessor": model[:-1] if (hasattr(model, "steps") and len(model.steps) > 1) else None,
+        "_coef_box": extremes,
     }
     if task == "regression":
         details["residual_std"] = float(np.std(y_enc - scores_hat, ddof=1)) if n > 1 else None
@@ -559,12 +566,14 @@ def _scan_predictions(
     return {"scores_hat": scores_hat, "low": lo, "high": hi, "flipped": flipped, "disagree_counts": disagree_counts}
 
 
-def _exact_flips(rs: RashomonSet, X_arr: Array, tau: float, sampled_flips: Array) -> Array:
+def _exact_flips(
+    rs: RashomonSet, X_arr: Array, tau: float, sampled_flips: Array, coef_box: Optional[Array] = None
+) -> Array:
     """Settle the rows not flipped by any sampled model with the exact hyperplane test."""
     flipped = sampled_flips.copy()
     undecided = ~flipped
     if np.any(undecided):
-        flipped[undecided] = rs.can_flip(X_arr[undecided], tau)
+        flipped[undecided] = rs.can_flip(X_arr[undecided], tau, coef_box=coef_box)
     return flipped
 
 
