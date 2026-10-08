@@ -25,9 +25,11 @@ Array = np.ndarray
 
 
 def _sigmoid(z: Any) -> Array:
-    """Numerically stable sigmoid: avoids overflow for large negative z."""
+    """Numerically stable sigmoid; never overflows (exp is only applied to -|z|)."""
     z = np.asarray(z, dtype=float)
-    return np.where(z >= 0, 1.0 / (1.0 + np.exp(-z)), np.exp(z) / (1.0 + np.exp(z)))
+    e = np.exp(-np.abs(z))
+    return np.where(z >= 0, 1.0 / (1.0 + e), e / (1.0 + e))
+
 
 def _ess_geyer(chain: Array) -> float:
     """Effective sample size of a scalar chain (Geyer 1992, initial positive sequence).
@@ -350,6 +352,7 @@ class RashomonSet:
         self._lambda: Optional[float] = None
         self._reg_mask: Optional[Array] = None  # 1 = penalized coordinate, 0 = unpenalized
         self._sw: Optional[Array] = None  # row weights with mean 1
+        self._kappa_H: Optional[float] = None
         self._epsilon_value: Optional[float] = None
         self._implied_alpha: Optional[float] = None
 
@@ -481,9 +484,23 @@ class RashomonSet:
                 "Near-separation detected in an unpenalized logistic fit (min p(1-p) too small); "
                 "the maximum-likelihood optimum is not finite. Add L2 regularization or override."
             )
+        # Conditioning. Up to ~1e12 double precision still carries several significant
+        # digits through the Cholesky and Newton solves, so warn; beyond that the Hessian is
+        # numerically singular (collinear or constant features without a penalty, or
+        # features on wildly different scales) and the set is not computable.
+        self._kappa_H = kappa_H
         if kappa_H is not None and kappa_H > 1e8 and not self.safety_override:
-            raise RuntimeError(
-                f"Ill-conditioned Hessian (cond≈{kappa_H:.2e} > 1e8). Consider stronger L2 or feature scaling."
+            if kappa_H > 1e12:
+                raise RuntimeError(
+                    f"The Hessian of the objective is numerically singular (condition number {kappa_H:.1e}). "
+                    "This happens with collinear or constant features in an unpenalized fit, or with features "
+                    "on very different scales. Standardize the features (e.g. a Pipeline with StandardScaler) "
+                    "and refit, or add L2 regularization."
+                )
+            warnings.warn(
+                f"The Hessian is ill-conditioned (condition number {kappa_H:.1e}); results are computed in "
+                "double precision but standardizing the features would improve numerical accuracy.",
+                stacklevel=2,
             )
 
         # Epsilon calibration
@@ -497,7 +514,7 @@ class RashomonSet:
             lam=self._lambda,
             L_hat=self._L_hat,
             epsilon=self._epsilon_value,
-            tol=self.tol,
+            tol=self._membership_slack(),
             reg_mask=self._reg_mask,
             sample_weight=self._sw,
         )
@@ -772,6 +789,17 @@ class RashomonSet:
     def _reg_mask_or_ones(self) -> Array:
         return np.ones(self._d, dtype=float) if self._reg_mask is None else self._reg_mask
 
+
+    def _membership_slack(self) -> float:
+        """Floating-point slack for membership tests: ``tol``, but never more than 0.1% of ε.
+
+        An absolute slack would swamp a very small tolerance (ε of 1e-10 against
+        tol of 1e-6 would inflate the set ten-thousand-fold), so it is capped relative
+        to ε.
+        """
+        eps = float(self._epsilon_value) if self._epsilon_value is not None else float(self.tol)
+        return float(min(self.tol, 1e-3 * eps))
+
     def _hessian_cholesky(self, force_recompute: bool = False) -> Array:
         """Compute or retrieve cached Cholesky factorization of Hessian.
 
@@ -907,6 +935,12 @@ class RashomonSet:
             raise ValueError("max_bracket must be positive")
         if not (0.0 <= ellipsoid_mix < 1.0):
             raise ValueError("ellipsoid_mix must be in [0, 1)")
+        if ellipsoid_mix > 0.0:
+            try:
+                self._hessian_cholesky()
+            except RuntimeError:
+                warnings.warn("Hessian is not numerically SPD; ellipsoid proposals disabled.", stacklevel=2)
+                ellipsoid_mix = 0.0
 
         if directions is None:
             dir_mode = "whitened" if self.measure == "lr" else "euclidean"
@@ -986,7 +1020,11 @@ class RashomonSet:
 
         while saved < n_samples:
             if step >= max_steps:
-                raise RuntimeError("Hit-and-Run did not produce enough samples within step cap")
+                raise RuntimeError(
+                    "Hit-and-run could not find chords through the Rashomon set within the step cap. "
+                    f"The set is probably too small to resolve numerically (epsilon={eps:.3g} against an "
+                    f"optimal loss of {float(self._L_hat or 0.0):.3g}); increase the tolerance."
+                )
             step += 1
 
             if ellipsoid_mix > 0.0 and rng.random() < ellipsoid_mix:
@@ -1329,6 +1367,7 @@ class RashomonSet:
                 break
         return float(s @ best_theta)
 
+
     def min_loss_on_hyperplane(self, s: Array, c: float) -> float:
         """Exact ``min L(θ)`` subject to ``sᵀθ = c``.
 
@@ -1348,6 +1387,8 @@ class RashomonSet:
         gap = float(c) - float(s @ theta_hat)
         if gap == 0.0:
             return float(self._L_hat)
+        if float(s @ s) == 0.0:
+            return np.inf  # the functional is identically 0 != c: the hyperplane is empty
         if self.estimator == "linear":
             # L(θ) - L̂ = ½ (θ-θ̂)ᵀ H (θ-θ̂); the minimum on the hyperplane is ½ gap² / sᵀH⁻¹s.
             L = self._hessian_cholesky()
@@ -1401,6 +1442,7 @@ class RashomonSet:
             theta, L_curr = theta_new, L_new
         return float(L_curr)
 
+
     def can_flip(self, X: Array, tau: float = 0.0) -> Array:
         """Exact per-row test: can some model in the set put row ``i`` on the other side of ``tau``?
 
@@ -1414,7 +1456,7 @@ class RashomonSet:
         Xa = self._prepare_X(np.asarray(X, dtype=float))
         scores = Xa @ self._theta_hat
         eps = float(self._epsilon_value)
-        target = float(self._L_hat) + eps + float(self.tol)
+        target = float(self._L_hat) + eps + self._membership_slack()
         out = np.zeros(Xa.shape[0], dtype=bool)
         lam = float(self._lambda) if self._lambda is not None else 0.0
         penalized_all = bool(self._reg_mask is None or np.all(self._reg_mask > 0))
@@ -3250,7 +3292,7 @@ class RashomonSet:
         confidence : float
             Confidence level for intervals (default 0.90).
         feature_names : Optional[list]
-            Feature names.
+            Names of the features, or of all coordinates including the intercept.
         random_state : Optional[int]
             Seed.
 
@@ -3399,7 +3441,7 @@ class RashomonSet:
             Regularization strength (lambda). Include this to make losses
             comparable to RashomonSet.L_hat. Default 0 computes data loss only.
         feature_names : Optional[list]
-            Feature names.
+            Names of the features, or of all coordinates including the intercept.
 
         Returns
         -------

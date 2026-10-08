@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from typing import Any, List, Optional, Tuple
 
 import numpy as np
+from scipy import sparse
 from sklearn.linear_model import LinearRegression, LogisticRegression, Ridge, RidgeCV
 from sklearn.pipeline import Pipeline
 from sklearn.utils.class_weight import compute_class_weight
@@ -57,11 +58,48 @@ class LinearModelSpec:
         return "log-loss" if self.estimator == "logistic" else "squared error (½·MSE)"
 
 
+MAX_DENSE_ELEMENTS = 20_000_000  # ~160 MB of float64
+
+
 def to_numpy(a: Any, *, dtype: Any = float) -> Array:
-    """Convert array-likes (incl. pandas objects) to a numpy array."""
+    """Convert array-likes (pandas objects, scipy sparse matrices) to a numpy array.
+
+    Sparse matrices are densified: the Hessian, the samplers and the exact-range
+    solver all work with dense arrays. Very large sparse inputs are refused with an
+    explanation rather than silently exhausting memory.
+    """
+    if sparse.issparse(a):
+        n_elem = int(np.prod(a.shape))
+        if n_elem > MAX_DENSE_ELEMENTS:
+            raise ValueError(
+                f"X is sparse with {a.shape[0]} x {a.shape[1]} = {n_elem:,} entries; the audit works on "
+                f"dense arrays and densifies inputs up to {MAX_DENSE_ELEMENTS:,} entries. Audit a subsample "
+                "of rows or reduce the number of features."
+            )
+        return np.asarray(a.toarray(), dtype=dtype)
     if hasattr(a, "to_numpy"):
         return np.asarray(a.to_numpy(), dtype=dtype)
     return np.asarray(a, dtype=dtype)
+
+
+def check_feature_names(model: Any, X: Any) -> None:
+    """Raise if ``X`` has column names and they differ from those the model was fitted on.
+
+    scikit-learn records ``feature_names_in_`` when fitted on a DataFrame. Passing
+    columns in a different order would silently audit the wrong model, so this is an
+    error rather than a warning.
+    """
+    fitted_names = getattr(model, "feature_names_in_", None)
+    if fitted_names is None or not hasattr(X, "columns"):
+        return
+    given = [str(c) for c in X.columns]
+    expected = [str(c) for c in fitted_names]
+    if given != expected:
+        if sorted(given) == sorted(expected):
+            hint = "same columns in a different order; pass X[model.feature_names_in_]"
+        else:
+            hint = f"expected {expected}, got {given}"
+        raise ValueError(f"X's columns do not match the columns the model was fitted on ({hint}).")
 
 
 def unwrap_pipeline(model: Any, X: Any) -> Tuple[Any, Any, Optional[List[str]]]:
@@ -230,6 +268,7 @@ def rashomon_set_from_sklearn(
     forbidden = {"estimator", "C", "fit_intercept", "penalize_intercept"} & set(kwargs)
     if forbidden:
         raise ValueError(f"{sorted(forbidden)} are derived from the fitted model and cannot be overridden.")
+    check_feature_names(model, X)
     est, X_t, _ = unwrap_pipeline(model, X)
     X_arr = to_numpy(X_t)
     if X_arr.ndim != 2:

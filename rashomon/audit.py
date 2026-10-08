@@ -26,6 +26,7 @@ from sklearn.model_selection import KFold, StratifiedKFold
 
 from ._sklearn import (
     LinearModelSpec,
+    check_feature_names,
     describe_sklearn_model,
     encode_target,
     resolve_feature_names,
@@ -161,8 +162,9 @@ class StabilityReport:
     def summary(self) -> str:
         """Text summary. ``print(report.summary())`` or just ``report``."""
         w = 44
+        weighted = " (weighted)" if self.details.get("weighted") else ""
         lines = [
-            f"Stability audit: {self.model_name} ({self.task}), n={self.n:,}, {self.n_features} features",
+            f"Stability audit: {self.model_name} ({self.task}{weighted}), n={self.n:,}, {self.n_features} features",
             f"Equally-good models: training {self.loss_name} within {self.tolerance:.4g} of the optimum {self.loss_optimum:.4g}",
             f"  ({self.tolerance_description})",
             f"Method: {self.method}; {self.n_models:,} models"
@@ -334,6 +336,7 @@ def audit(
     if n_samples < 10:
         raise ValueError("n_samples must be at least 10")
 
+    check_feature_names(model, X)
     est, X_t, pipeline_names = unwrap_pipeline(model, X)
     X_arr = to_numpy(X_t)
     if X_arr.ndim != 2:
@@ -368,6 +371,11 @@ def audit(
     ).fit(X_arr, y_enc, theta_init=spec.theta, sample_weight=spec.sample_weight)
     assert rs._theta_hat is not None and rs._epsilon_value is not None and rs._L_hat is not None
     eps = float(rs._epsilon_value)
+    if rs._kappa_H is not None and rs._kappa_H > 1e8:
+        notes.append(
+            f"the Hessian is ill-conditioned (condition number {rs._kappa_H:.1e}); standardizing the "
+            "features would improve numerical accuracy"
+        )
 
     # The fitted coefficients should sit at the optimum of the reconstructed objective.
     coef_diff = float(np.max(np.abs(spec.theta - rs._theta_hat)))

@@ -186,6 +186,124 @@ def test_unsupported_models_raise(cancer, model, match):
         audit(model, X, y, tolerance=0.02, **_fast())
 
 
+# --------------------------------------------------------------- input robustness
+
+
+def test_unscaled_features_warn_but_work():
+    """Raw (unstandardized) breast-cancer features give kappa ~ 5e8: a warning and a note, not an error."""
+    data = load_breast_cancer(as_frame=True)
+    X, y = data.data.iloc[:, :6], data.target
+    model = LogisticRegression(max_iter=2000).fit(X, y)
+    with pytest.warns(UserWarning, match="ill-conditioned"):
+        report = audit(model, X, y, tolerance=0.02, **_fast())
+    assert any("ill-conditioned" in n for n in report.details["notes"])
+    assert 0.0 <= report.flip_rate <= 1.0
+
+
+def test_singular_hessian_is_explained(regression_data):
+    X, y = regression_data
+    Xd = X.copy()
+    Xd["dup"] = Xd["f0"]  # exact collinearity, no penalty
+    model = LinearRegression().fit(Xd, y)
+    with pytest.raises(RuntimeError, match="Standardize the features|collinear"):
+        audit(model, Xd, y, tolerance=0.02, **_fast())
+
+
+def test_column_order_mismatch_raises(cancer):
+    X, y = cancer
+    model = LogisticRegression(max_iter=2000).fit(X, y)
+    with pytest.raises(ValueError, match="different order"):
+        audit(model, X.iloc[:, ::-1], y, tolerance=0.02, **_fast())
+    with pytest.raises(ValueError, match="do not match"):
+        audit(model, X.rename(columns={X.columns[0]: "renamed"}), y, tolerance=0.02, **_fast())
+    with pytest.raises(ValueError, match="do not match"):
+        RashomonSet.from_sklearn(model, X.iloc[:, ::-1], y, epsilon=0.02)
+
+
+def test_sparse_input(cancer):
+    import scipy.sparse as sps
+
+    from rashomon import _sklearn
+
+    X, y = cancer
+    Xs = sps.csr_matrix(X.to_numpy())
+    model = LogisticRegression(max_iter=2000).fit(Xs, y)
+    dense = audit(model, X.to_numpy(), y, tolerance=0.02, **_fast())
+    sparse = audit(model, Xs, y, tolerance=0.02, **_fast())
+    assert sparse.flip_rate == pytest.approx(dense.flip_rate)
+    old = _sklearn.MAX_DENSE_ELEMENTS
+    try:
+        _sklearn.MAX_DENSE_ELEMENTS = 100
+        with pytest.raises(ValueError, match="sparse"):
+            audit(model, Xs, y, tolerance=0.02, **_fast())
+    finally:
+        _sklearn.MAX_DENSE_ELEMENTS = old
+
+
+def test_column_transformer_pipeline_names(cancer):
+    from sklearn.compose import ColumnTransformer
+    from sklearn.preprocessing import OneHotEncoder
+
+    X, y = cancer
+    df = X.copy()
+    df["grade"] = pd.Categorical(np.where(y == 1, "low", np.where(df.iloc[:, 0] > 0, "high", "mid")))
+    ct = ColumnTransformer(
+        [("num", StandardScaler(), list(X.columns)), ("cat", OneHotEncoder(drop="first"), ["grade"])]
+    )
+    model = make_pipeline(ct, LogisticRegression(max_iter=2000)).fit(df, y)
+    report = audit(model, df, y, tolerance=0.02, **_fast())
+    assert report.n_features == X.shape[1] + 2
+    assert list(report.coefficients.index)[-2:] == ["cat__grade_low", "cat__grade_mid"]
+    assert report.details["coef_max_abs_diff_vs_model"] < 0.05
+
+
+def test_tiny_tolerance_yields_a_stable_report(cancer):
+    X, y = cancer
+    model = LogisticRegression(max_iter=2000).fit(X, y)
+    # eps ~ 1e-10 is smaller than the solver's own loss gap, so the model lands outside the set
+    with pytest.warns(UserWarning, match="outside the reconstructed Rashomon set"):
+        report = audit(model, X, y, tolerance=1e-9, **_fast())
+    assert report.flip_rate == 0.0
+    assert report.coefficients["sign_stable"].all()
+
+
+def test_regression_report_without_threshold(regression_data):
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    X, y = regression_data
+    report = audit(Ridge(alpha=1.0).fit(X, y), X, y, tolerance=0.05, **_fast())
+    text = report.summary()
+    assert "Median prediction range width" in text and "residual std" in text
+    assert report.flip_method == "none"
+    new = report.predict_ranges(X.iloc[:4])
+    assert list(new.columns) == ["estimate", "low", "high"] and len(new) == 4
+    fig = report.plot()
+    assert len(fig.axes) == 2
+    plt.close(fig)
+
+
+def test_zero_row_without_intercept(cancer):
+    X, y = cancer
+    Xz = X.to_numpy().copy()
+    Xz[0] = 0.0
+    model = LogisticRegression(fit_intercept=False, max_iter=2000).fit(Xz, y)
+    report = audit(model, Xz, y, tolerance=0.02, **_fast())
+    assert bool(report.flipped[0])  # score is exactly the threshold for every model
+    assert np.isinf(report.rashomon_set.min_loss_on_hyperplane(np.zeros(X.shape[1]), 1.0))
+
+
+def test_sigmoid_never_overflows():
+    from rashomon.rashomon_set import _sigmoid
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        out = _sigmoid(np.array([-1e4, -40.0, 0.0, 40.0, 1e4]))
+    assert np.allclose(out, [0.0, 4.248e-18, 0.5, 1.0, 1.0], atol=1e-12)
+
+
 # ----------------------------------------------------------------------- weights
 
 
@@ -224,6 +342,14 @@ def test_class_weight_and_sample_weight_combine(cancer):
     report = audit(model, X, y, sample_weight=sw, **_fast())  # default "cv" tolerance also runs weighted
     assert report.details["coef_max_abs_diff_vs_model"] < 1e-4
     assert "cross-validated" in report.tolerance_description
+    assert "(weighted)" in report.summary().split("\n")[0]
+    # the exact flip test uses the weighted objective too
+    rs = report.rashomon_set
+    Xa = rs._prepare_X(X.to_numpy())
+    closest = np.argsort(np.abs(Xa @ rs._theta_hat))[:10]
+    for i in closest:
+        lo, hi = rs.functional_range(Xa[i])
+        assert (lo <= 0.0 <= hi) == bool(rs.can_flip(X.to_numpy()[[i]], 0.0)[0])
 
 
 def test_weighted_ridge(regression_data):
