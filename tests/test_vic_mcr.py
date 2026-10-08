@@ -1,5 +1,6 @@
 """Tests for VIC and MCR metrics (E20, E22)."""
 import numpy as np
+import pytest
 
 from rashomon import RashomonSet
 
@@ -103,6 +104,27 @@ def test_vic_ellipsoid_vs_hitandrun():
     # This is a weak test - just checking they're in the same ballpark
     mean_diff = np.abs(vic_ell["mean"] - vic_har["mean"])
     assert np.mean(mean_diff) < 1.0  # loose tolerance
+
+
+def test_feature_names_may_omit_the_intercept():
+    """Names of the features alone are accepted; the intercept label is prepended."""
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(150, 3))
+    y = (X @ np.array([1.0, -0.5, 0.0]) + rng.normal(size=150) > 0).astype(float)
+    rs = RashomonSet(estimator="logistic", fit_intercept=True, epsilon=0.02, random_state=0).fit(X, y)
+    vic = rs.variable_importance_cloud(n_samples=50, feature_names=["a", "b", "c"], random_state=0)
+    assert vic["feature_names"] == ["(intercept)", "a", "b", "c"]
+    assert vic["samples"].shape[1] == 4
+    full = rs.variable_importance_cloud(n_samples=50, feature_names=["b0", "a", "b", "c"], random_state=0)
+    assert full["feature_names"] == ["b0", "a", "b", "c"]
+    with pytest.raises(ValueError, match="length 3"):
+        rs.variable_importance_cloud(n_samples=50, feature_names=["a", "b"], random_state=0)
+    comp = rs.compare_to_bootstrap(X, y, n_bootstrap=20, n_rashomon=50, feature_names=["a", "b", "c"], random_state=0)
+    assert list(comp["divergence"]) == ["a", "b", "c"]
+    # the labelled feature-level widths line up with the sliced samples (no off-by-one)
+    assert comp["divergence"]["a"]["vic_width"] == pytest.approx(
+        float(np.diff(np.quantile(comp["vic_samples"][:, 0], [0.05, 0.95]))[0])
+    )
 
 
 def test_vic_legacy_method():

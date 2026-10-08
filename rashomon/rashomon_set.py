@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import platform
 import warnings
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -789,6 +789,25 @@ class RashomonSet:
     def _reg_mask_or_ones(self) -> Array:
         return np.ones(self._d, dtype=float) if self._reg_mask is None else self._reg_mask
 
+    def _coordinate_names(self, feature_names: Optional[Sequence[str]]) -> List[str]:
+        """Names for all ``d`` coordinates in internal layout (intercept first if fitted).
+
+        ``feature_names`` may name the features only (length ``d_original``), in which
+        case ``"(intercept)"`` is prepended, or all coordinates (length ``d``).
+        """
+        n_feat = self._d_original if self.fit_intercept else self._d
+        if feature_names is None:
+            names = [f"feature_{i}" for i in range(n_feat)]
+        else:
+            names = [str(s) for s in feature_names]
+            if self.fit_intercept and len(names) == self._d:
+                return names
+            if len(names) != n_feat:
+                raise ValueError(
+                    f"feature_names must have length {n_feat} (the features) or {self._d} (features with the intercept)"
+                    if self.fit_intercept else f"feature_names must have length d={self._d}"
+                )
+        return ["(intercept)"] + names if self.fit_intercept else names
 
     def _membership_slack(self) -> float:
         """Floating-point slack for membership tests: ``tol``, but never more than 0.1% of ε.
@@ -1969,7 +1988,8 @@ class RashomonSet:
         sampler : Optional[str]
             Sampler to use ("ellipsoid" or "hitandrun"). Defaults to self.sampler.
         feature_names : Optional[list]
-            Names for features (used in plotting). If None, uses indices.
+            Names of the features (length d_original; "(intercept)" is prepended when
+            fit_intercept=True) or of all coordinates (length d). If None, uses indices.
         burnin : int
             Burn-in for Hit-and-Run sampler (ignored for ellipsoid).
         thin : int
@@ -2020,13 +2040,7 @@ class RashomonSet:
         # 90% intervals
         intervals = np.stack([quantiles[0.05], quantiles[0.95]], axis=1)
 
-        # Feature names
-        if feature_names is None:
-            names = [f"feature_{i}" for i in range(self._d)]
-        else:
-            if len(feature_names) != self._d:
-                raise ValueError(f"feature_names must have length d={self._d}")
-            names = list(feature_names)
+        names = self._coordinate_names(feature_names)
 
         return {
             "samples": samples,
@@ -2612,7 +2626,7 @@ class RashomonSet:
         sampler : Optional[str]
             Sampler backend ("ellipsoid" or "hitandrun").
         feature_names : Optional[list]
-            Feature names.
+            Names of the features, or of all coordinates including the intercept.
         burnin, thin : int
             Hit-and-Run parameters.
         random_state : Optional[int]
@@ -2666,9 +2680,7 @@ class RashomonSet:
             # Mean absolute Shapley per feature: mean_i |phi[i,j]|
             shapley_matrix[s] = np.mean(np.abs(theta_s[None, :] * x_centered), axis=0)
 
-        names = feature_names if feature_names is not None else [f"feature_{i}" for i in range(self._d)]
-        if len(names) != self._d:
-            raise ValueError(f"feature_names must have length d={self._d}")
+        names = self._coordinate_names(feature_names)
 
         return {
             "shapley_samples": shapley_matrix,
@@ -3201,7 +3213,7 @@ class RashomonSet:
         confidence : float
             Confidence level for intervals (default 0.90).
         feature_names : Optional[list]
-            Names for features.
+            Names of the features (without the intercept).
         random_state : Optional[int]
             Random seed for reproducibility.
 
@@ -3281,8 +3293,8 @@ class RashomonSet:
             np.quantile(vic_samples, q_hi, axis=0),
         ], axis=1)
 
-        # --- Per-feature divergence metrics ---
-        names = vic["feature_names"]
+        # --- Per-feature divergence metrics (features only; the intercept was sliced out) ---
+        names = vic["feature_names"][1:] if self.fit_intercept else vic["feature_names"]
         divergence = {}
         for j in range(d):
             boot_width = float(boot_ci[j, 1] - boot_ci[j, 0])
