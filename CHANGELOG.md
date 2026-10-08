@@ -5,7 +5,7 @@ All notable changes to rashomon-py will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.2] - Unreleased
+## [0.3.2] - 2026-10-07
 
 Robustness pass over the existing scope before widening it.
 
@@ -204,7 +204,7 @@ First public release.
 L2-regularized logistic and linear regression only. No trees, neural nets,
 L1 penalties, or arbitrary estimators.
 
-[0.3.2]: https://github.com/fxcawley/StableGLM/compare/v0.3.1...HEAD
+[0.3.2]: https://github.com/fxcawley/StableGLM/releases/tag/v0.3.2
 [0.3.1]: https://github.com/fxcawley/StableGLM/releases/tag/v0.3.1
 [0.3.0]: https://github.com/fxcawley/StableGLM/releases/tag/v0.3.0
 [0.2.0]: https://github.com/fxcawley/StableGLM/releases/tag/v0.2.0
