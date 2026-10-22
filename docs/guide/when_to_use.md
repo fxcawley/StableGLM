@@ -22,7 +22,7 @@ The toolkit supports only L2-regularized logistic and linear regression. The mat
 
 Coefficient ranges and per-row flips are computed exactly, so dimension affects their cost but not their validity (about a minute at n = 5,000 and d = 101). Sampled quantities (the disagreement figure, prediction ranges) depend on the hit-and-run chain mixing, which it does well up to a few dozen features and poorly beyond about 60; the report's effective sample size says which case you are in. See the {doc}`evaluation <../evaluation>`.
 
-The toolkit does not compute fairness metrics (demographic parity, equalized odds, etc.), though the Rashomon set is relevant to fairness; see Rudin (2019). It does not perform model selection. It does not answer questions about statistical significance; bootstrap CIs and p-values address sampling uncertainty, while Rashomon intervals address model multiplicity, and these are different quantities.
+The toolkit does not compute fairness metrics (demographic parity, equalized odds, etc.), though the Rashomon set is relevant to fairness; see Rudin (2019). It does not perform model selection. It is not a separate theory of uncertainty: for an L2 GLM the Rashomon set is a credible region of the Laplace posterior at a level set by the tolerance, and with the `("profile", alpha)` tolerance its coefficient ranges are profile-likelihood confidence intervals (see {doc}`why_not_bootstrap`).
 
 ## References
 

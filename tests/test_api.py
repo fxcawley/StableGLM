@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from rashomon import RashomonSet
 
@@ -343,24 +344,11 @@ def test_sklearn_vs_fallback_consistency():
     )
 
 
-def test_lr_alpha_highdim():
-    """Test Sur-Candès high-dimensional LR calibration."""
+def test_lr_alpha_highdim_removed():
+    """The 1/(1 - d/n) inflation that was labelled a Sur-Candès correction is gone; the error says why."""
     X, y = _make_data(n=80, d=10, seed=42)
-    rs = RashomonSet(
-        estimator="logistic",
-        epsilon=0.05,
-        epsilon_mode="LR_alpha_highdim",
-        safety_override=True,
-        random_state=0,
-    ).fit(X, y)
-
-    diag = rs.diagnostics()
-    assert diag["epsilon_mode"] == "LR_alpha_highdim"
-    assert diag["epsilon"] is not None
-    assert diag["epsilon"] > 0
-    # High-dim correction should produce a larger epsilon than low-dim
-    # (correction factor > 1 for d/n > 0)
-    assert diag["implied_alpha"] is not None
+    with pytest.raises(ValueError, match="has been removed"):
+        RashomonSet(estimator="logistic", epsilon=0.05, epsilon_mode="LR_alpha_highdim", random_state=0).fit(X, y)
 
 
 def test_lanczos_hinvsqrt():

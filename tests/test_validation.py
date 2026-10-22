@@ -17,6 +17,19 @@
    gives independent values for the coefficient ranges, the set of flippable rows and
    the moments of the uniform distribution on the set. The exact routines and the
    sampler are checked against them.
+
+3. The Laplace posterior. n * L(theta) is a negative log-posterior (log-likelihood plus
+   a Gaussian prior with precision n * lambda on the penalized coordinates), so theta_hat
+   is its mode and the Laplace posterior is N(theta_hat, (nH)^-1). To second order the
+   Rashomon set is the HPD region of mass F_chi2_d(2 n eps), and its coordinate ranges
+   are the marginal credible intervals rescaled by sqrt(2 n eps) / z. For ridge the loss
+   is exactly quadratic and these identities are exact; for logistic they hold up to the
+   non-quadratic part of the loss inside the set.
+
+4. The bootstrap. The nonparametric bootstrap of the penalized estimator has the sandwich
+   variance (nH)^-1 J (nH)^-1 with J the empirical score covariance. Without a penalty this
+   is the Laplace variance (nH)^-1; with one it is smaller along the directions the penalty
+   controls. This is the whole explanation of "narrow bootstrap interval, wide Rashomon range".
 """
 
 from pathlib import Path
@@ -26,7 +39,9 @@ import pandas as pd
 import pytest
 from scipy.optimize import brentq, minimize
 from scipy.stats import chi2
+from sklearn.datasets import load_breast_cancer
 from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler
 
 from rashomon import RashomonSet, audit
 
@@ -196,3 +211,115 @@ def test_grid_sampler_moments(grid_problem):
     corr_g = cov_g[0, 1] / (sd[0] * sd[1])
     corr_s = cov_s[0, 1] / np.sqrt(cov_s[0, 0] * cov_s[1, 1])
     assert corr_s == pytest.approx(corr_g, abs=0.05)
+
+
+# ------------------------------------------------------------- Laplace posterior
+
+
+@pytest.fixture(scope="module")
+def cancer_sklearn_default():
+    """The README model: sklearn's default LogisticRegression() on ten standardized features."""
+    data = load_breast_cancer()
+    X = StandardScaler().fit_transform(data.data[:, :10])
+    y = data.target.astype(float)
+    model = LogisticRegression().fit(X, y)
+    rs = RashomonSet.from_sklearn(model, X, y, epsilon=0.02, random_state=0)
+    return rs, X, y
+
+
+def test_laplace_posterior_mode_is_theta_hat(cancer_sklearn_default):
+    """The posterior compare_to_bayesian samples from must have theta_hat as its mode.
+
+    Its precision minus the observed information is the prior precision; the gradient of
+    log-likelihood plus log-prior at theta_hat must vanish. Computed from X, y and p
+    directly, without the class's Hessian.
+    """
+    rs, X, y = cancer_sklearn_default
+    out = rs.compare_to_bayesian(n_samples=20, random_state=0)
+    Xa = rs._prepare_X(X)
+    theta = rs._theta_hat
+    p = 1.0 / (1.0 + np.exp(-(Xa @ theta)))
+    observed_information = Xa.T @ (Xa * (p * (1 - p))[:, None])
+    prior_precision = out["posterior_precision"] - observed_information
+    score = Xa.T @ (y - p)
+    gradient = score - prior_precision @ theta
+    assert np.linalg.norm(gradient) < 1e-6 * np.linalg.norm(score)
+    # the prior is Gaussian with precision n*lambda on the features and flat on the intercept
+    expected = np.diag(np.r_[0.0, np.full(X.shape[1], rs._n * rs._lambda)])
+    assert np.allclose(prior_precision, expected, atol=1e-6 * rs._n * rs._lambda)
+
+
+def test_ridge_rashomon_set_is_laplace_hpd_region():
+    """For ridge the loss is exactly quadratic, so the identities are exact."""
+    rng = np.random.default_rng(3)
+    n, d = 400, 5
+    X = rng.normal(size=(n, d))
+    X[:, 1] = 0.9 * X[:, 0] + 0.1 * X[:, 1]
+    y = X @ np.array([1.0, -1.0, 0.5, 0.0, 0.2]) + rng.normal(size=n)
+    rs = RashomonSet(estimator="linear", C=50.0, epsilon=0.01, random_state=0).fit(X, y)
+    out = rs.compare_to_bayesian(n_samples=40000, confidence=0.90, random_state=0)
+    n_eps = rs._n * rs._epsilon_value
+
+    # coefficient ranges are the credible intervals rescaled by sqrt(2 n eps) / z
+    half_range = (out["rashomon_range"][:, 1] - out["rashomon_range"][:, 0]) / 2
+    assert out["rashomon_range_method"] == "exact"
+    assert np.allclose(half_range, np.sqrt(2 * n_eps) * out["bayesian_std"], rtol=1e-6)
+    for c in out["comparison"].values():
+        assert c["range_to_bayesian_ratio"] == pytest.approx(c["range_to_bayesian_ratio_quadratic"], rel=1e-6)
+
+    # membership in the set is the Mahalanobis test, and the posterior mass is the HPD level
+    delta = out["bayesian_samples"] - rs._theta_hat
+    mahalanobis = np.einsum("ij,jk,ik->i", delta, out["posterior_precision"], delta)
+    inside = rs.contains_many(out["bayesian_samples"])
+    assert np.array_equal(inside, mahalanobis <= 2 * n_eps + 1e-9)
+    assert out["hpd_level"] == pytest.approx(chi2.cdf(2 * n_eps, df=rs._d))
+    assert inside.mean() == pytest.approx(out["hpd_level"], abs=0.01)
+
+
+def test_logistic_ranges_match_quadratic_prediction(cancer_sklearn_default):
+    """On the README model the loss is close to quadratic inside the set: the exact ranges
+    are within a few percent of the Laplace prediction sqrt(2 n eps) * sd for every coefficient."""
+    rs, X, y = cancer_sklearn_default
+    out = rs.compare_to_bayesian(n_samples=20, random_state=0)
+    assert out["rashomon_range_method"] == "exact"
+    for c in out["comparison"].values():
+        assert c["range_to_bayesian_ratio"] == pytest.approx(c["range_to_bayesian_ratio_quadratic"], rel=0.05)
+    # and the posterior samples land in the set at about the HPD rate
+    big = rs.compare_to_bayesian(n_samples=4000, random_state=1)
+    assert rs.contains_many(big["bayesian_samples"]).mean() == pytest.approx(big["hpd_level"], abs=0.03)
+
+
+# ------------------------------------------------------------------- bootstrap
+
+
+def _sandwich_and_laplace_sd(rs, X, y):
+    n = rs._n
+    Xa = rs._prepare_X(X)
+    p = 1.0 / (1.0 + np.exp(-(Xa @ rs._theta_hat)))
+    nH_inv = np.linalg.inv(n * rs._hessian_matrix())
+    J = Xa.T @ (Xa * ((y - p) ** 2)[:, None])
+    return np.sqrt(np.diag(nH_inv @ J @ nH_inv))[1:], np.sqrt(np.diag(nH_inv))[1:]
+
+
+def test_unpenalized_bootstrap_matches_laplace(admissions):
+    """With lambda = 0 the sandwich is the Laplace variance and the bootstrap reproduces both."""
+    X, y = admissions
+    rs = RashomonSet(estimator="logistic", C=np.inf, fit_intercept=True, epsilon=0.01).fit(X, y)
+    sd_sandwich, sd_laplace = _sandwich_and_laplace_sd(rs, X, y)
+    assert np.allclose(sd_sandwich, sd_laplace, rtol=0.05)
+    comp = rs.compare_to_bootstrap(X, y, n_bootstrap=300, n_rashomon=20, random_state=0)
+    assert np.allclose(comp["bootstrap_std"], sd_laplace, rtol=0.15)
+
+
+def test_penalized_bootstrap_is_narrower_along_penalized_directions(cancer_sklearn_default):
+    """With a penalty the bootstrap sd is below the Laplace sd, by a factor of 4-5 for the
+    collinear trio radius / perimeter / area and by little for texture."""
+    rs, X, y = cancer_sklearn_default
+    sd_sandwich, sd_laplace = _sandwich_and_laplace_sd(rs, X, y)
+    comp = rs.compare_to_bootstrap(X, y, n_bootstrap=300, n_rashomon=20, random_state=0)
+    sd_boot = comp["bootstrap_std"]
+    assert np.allclose(sd_boot, sd_sandwich, rtol=0.25)
+    assert np.all(sd_boot < 1.1 * sd_laplace)
+    ratio = sd_boot / sd_laplace
+    assert np.all(ratio[[0, 2, 3]] < 0.3)  # mean radius, mean perimeter, mean area
+    assert ratio[1] > 0.6  # mean texture

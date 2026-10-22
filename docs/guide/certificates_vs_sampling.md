@@ -16,9 +16,11 @@ $$\mathcal{E}_\varepsilon = \bigl\{\hat\theta + \Delta : \Delta^\top H \Delta \l
 
 where $H = \nabla^2 L(\hat\theta)$ is the Hessian at the optimum. For any linear functional $s^\top\theta$ (a single coefficient, a linear combination corresponding to a prediction at a particular point), the extrema over $\mathcal{E}_\varepsilon$ have closed forms involving $\lVert s \rVert_{H^{-1}}$. This makes coefficient intervals, prediction bands, and ambiguity bounds available in milliseconds regardless of dimensionality.
 
-The ellipsoid is an approximation, not a bound: the true set can extend beyond it in some directions and fall short of it in others. In practice it is close. In the {doc}`evaluation <../evaluation>` on four real datasets (d from 10 to 101, tolerances of 1–3% of the loss and the `"cv"` default), the ellipsoid coefficient intervals are within 1% of the exact ranges in most cases and within 24% in the worst coordinate, and its flip screen is within a few points of the exact flip rate. It overestimates when the tolerance is a large fraction of the loss (36% vs 24% flips at a tolerance of 34% of the loss), where the quadratic model of the loss is no longer accurate.
+The ellipsoid is an approximation, not a bound: the true set can extend beyond it in some directions and fall short of it in others. Its interval *widths* are usually right (median width ratio to the exact ranges 0.95–1.00 on the four real datasets of the {doc}`evaluation <../evaluation>`), but the *bounds* can be misplaced: for a coefficient whose extremal direction is carried by few rows, such as a rare one-hot level, the exact range extends 0.2–1.8 ellipsoid half-widths beyond the ellipsoid on one side (German Credit, Adult), and at tolerances above about 10% of the loss most bounds are off by more than 10%. Its flip screen is within a few points of the exact flip rate at 1–3% tolerances and overestimates at large ones (36% vs 24% flips at a tolerance of 34% of the loss).
 
-An earlier version of this page reported the ellipsoid as 4–8x too wide at d = 61–104. That comparison used sampled widths as the reference, and sampled widths understate the true range (see below); against the exact ranges the ellipsoid is close at every dimension tested.
+`RashomonSet.quadratic_error()` measures this without the full convex program. Its default searches the true loss along each ellipsoid extremal ray and returns how far the boundary there is from the ellipsoid's; `method="newton"` adds one step of the exact program's iteration from that point, using the Hessian at the boundary. Both give points inside the set, so both are inner bounds on the exact range; the Newton estimate was within 4% of exact in every case evaluated (within 1% on Adult, where the ellipsoid is off by 120%) at a fifth of the exact program's cost. `audit()` reports the ellipsoid's error alongside exact ranges (`report.details["ellipsoid_error"]`).
+
+An earlier version of this page reported the ellipsoid as 4–8x too wide at d = 61–104. That comparison used sampled widths as the reference, and sampled widths understate the true range (see below). A later version said the ellipsoid was within 24% of exact in the worst coordinate; that figure was the maximum of a width ratio and missed the coefficients where the ellipsoid is too narrow.
 
 ## Hit-and-run sampling
 
@@ -46,7 +48,7 @@ Quantities that are extremes over the set (coefficient ranges, sign stability, w
 
 Sampling is the right tool for quantities that are *not* extremes of a linear functional, such as the disagreement of a single model with yours, and for a picture of the whole set (prediction ranges). Read these through the effective sample size; they are lower bounds.
 
-The ellipsoid is a fast screen that is close to exact at tolerances of a few percent of the loss. It is what `method="ellipsoid"` uses in `audit()` and what `hacking_interval` / `coef_intervals` return.
+The ellipsoid is a fast screen. It is what `method="ellipsoid"` uses in `audit()` and what `hacking_interval` / `coef_intervals` return; `quadratic_error()` says, per coefficient or per row, how far its bounds are from the set's boundary along the extremal ray.
 
 ## References
 

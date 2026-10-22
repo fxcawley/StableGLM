@@ -1,58 +1,40 @@
 # Bootstrap, Rashomon, and Bayesian intervals
 
-Standard practice after fitting a model is to compute bootstrap confidence intervals and treat them as a summary of parameter uncertainty. The question is whether this is sufficient, or whether there are important sources of variation that bootstrap does not capture. The Rashomon set framework suggests that there are.
+For an L2-penalized GLM the coefficient range over the Rashomon set is related by identities to the Laplace credible interval, the profile-likelihood interval and the bootstrap interval. This page states them. The numbers come from the [tutorial](../examples/tutorial.md), where they are regenerated in CI.
 
-## What bootstrap measures
+## The three objects
 
-Bootstrap resampling quantifies sampling uncertainty: how much would $\hat\theta$ change if the data were redrawn from the same population? The resulting confidence intervals have width $O(1/\sqrt{n})$ and converge to zero as the sample grows. This is a well-understood and useful quantity, but it implicitly conditions on the model structure being correct. The bootstrap treats the logistic regression specification, the choice of features, and the regularization strength as given, and asks only about the noise in the data (Efron & Tibshirani, 1993).
+The fitted objective is $L(\theta) = \text{mean loss} + \tfrac{\lambda}{2}\theta^\top M\theta$, with $M$ masking the unpenalized intercept and $\lambda = 1/(Cn)$ for scikit-learn's `C`. $H = \nabla^2 L(\hat\theta)$ is its Hessian at the optimum.
 
-## What the Rashomon set measures
+**Laplace posterior.** $nL(\theta)$ is a negative log-posterior: the log-likelihood plus a Gaussian prior with precision $n\lambda$ on the penalized coordinates. Its mode is $\hat\theta$ and its Laplace approximation is $N(\hat\theta, (nH)^{-1})$. With $\lambda = 0$ this is the asymptotic (Wald) distribution of the MLE. `RashomonSet.compare_to_bayesian()` constructs it.
 
-The $\varepsilon$-Rashomon set captures a different source of variation: model multiplicity. It contains all parameter vectors that achieve loss within $\varepsilon$ of the optimum on the observed data. The width of this set depends on $\varepsilon$ and on the geometry of the loss surface (in particular, the eigenstructure of the Hessian at the optimum), not on $n$ directly.
+**Rashomon set.** $\mathcal{R}_\varepsilon = \{\theta : L(\theta) \le L(\hat\theta) + \varepsilon\}$. To second order it is $\{\theta : (\theta - \hat\theta)^\top nH (\theta - \hat\theta) \le 2n\varepsilon\}$, the highest-posterior-density region of the Laplace posterior with mass $F_{\chi^2_d}(2n\varepsilon)$. The exact set differs from this ellipsoid only through the non-quadratic part of the loss inside it.
 
-This distinction matters because model multiplicity does not necessarily disappear with more data. If the loss surface has flat directions, meaning directions in parameter space along which the Hessian has small eigenvalues, then many qualitatively different parameter vectors remain near-optimal regardless of sample size. Fisher, Rudin, & Dominici (2019) make this point in the context of variable importance: a feature can appear critical under one near-optimal model and irrelevant under another, and this ambiguity is a property of the model class and the data geometry, not of sampling noise.
+**Bootstrap.** Refitting the penalized estimator on resampled rows gives the sampling distribution of $\hat\theta$, with variance approximately the sandwich $(nH)^{-1} J (nH)^{-1}$, where $J = \sum_i (y_i - p_i)^2 x_i x_i^\top$ is the empirical score covariance (Efron & Tibshirani, 1993). `RashomonSet.compare_to_bootstrap()` runs it.
 
-The distinction is also important for identifying what Semenova, Rudin, & Parr (2022) call the "hidden subjectivity" in model fitting. Bootstrap CIs assume the model structure is correct and only account for noise. A wide Rashomon interval, by contrast, reveals that there are many other models, perhaps using different effective variable weightings, that are just as accurate. Ignoring this leads to overconfidence in a single model's explanation.
+## How they relate
 
-## The empirical gap
+*Rashomon range vs credible interval.* The range of coefficient $j$ over the ellipsoid is $\hat\theta_j \pm \sqrt{2n\varepsilon}\,\mathrm{sd}_j$, where $\mathrm{sd}_j$ is the marginal posterior standard deviation; the $(1-\alpha)$ credible interval is $\hat\theta_j \pm z_{1-\alpha/2}\,\mathrm{sd}_j$. The ratio $\sqrt{2n\varepsilon}/z_{1-\alpha/2}$ is the same for every coefficient and depends only on the tolerance. On the breast-cancer model with the `"cv"` tolerance, $\sqrt{2n\varepsilon} = 4.40$ and the set is a 94.6% HPD region; the exact ranges are within 4% of $\sqrt{2n\varepsilon}\,\mathrm{sd}_j$ for all ten coefficients.
 
-On the Breast Cancer dataset ($d = 10$, $n = 569$), VIC intervals are 4--11x wider than 90% bootstrap CIs. This is not a calibration error. It reflects that many different parameter vectors fit the data nearly as well, a fact that bootstrap does not capture because it resamples data, not models. The width ratio depends on $\varepsilon$ and $n$; bootstrap CIs shrink as $O(1/\sqrt{n})$ while Rashomon intervals for fixed $\varepsilon$ do not, so the gap grows with sample size.
+*Rashomon range vs profile-likelihood interval.* With `tolerance=("profile", alpha)`, $\varepsilon = \chi^2_1(1-\alpha)/(2n)$, and for an unpenalized fit the range of coefficient $j$ is exactly the $(1-\alpha)$ profile-likelihood confidence interval, because maximizing $\theta_j$ subject to the loss constraint minimizes the loss over the other coordinates. `tests/test_validation.py` reproduces R's `confint()` on the UCLA admissions data to 1e-4.
 
-## The Bayesian baseline
+*Rashomon range vs bootstrap interval.* The bootstrap variance $(nH)^{-1}J(nH)^{-1}$ and the posterior variance $(nH)^{-1}$ agree when $\lambda = 0$ and the model is well specified. With a penalty they differ along the directions the penalty controls: the prior precision $n\lambda$ dominates the data's information there, so the posterior is wide, while the estimator moves little between resamples because the penalty holds it in place. On the breast-cancer model the Laplace sd is four to five times the bootstrap sd for radius, perimeter and area, and 25% above it for texture. The Rashomon half-range is a further factor $\sqrt{2n\varepsilon}$ above the Laplace sd.
 
-Under a Laplace approximation with Gaussian prior $N(0, (1/\lambda)I)$, the posterior is approximately Gaussian with covariance $H_{\text{post}}^{-1}$. The resulting credible intervals are wider still than the VIC intervals, because the posterior integrates over all plausible parameter values, not just those within $\varepsilon$ of the optimum. The ordering across all features in the Breast Cancer evaluation is consistent:
+A ratio of Rashomon width to bootstrap width is therefore the product of a tolerance factor, $\sqrt{2n\varepsilon}/z$, and a penalty factor, the posterior sd over the sampling sd. Reported on its own it does not say which factor it measures. An earlier version of this page reported such ratios, and compared against a Laplace posterior built with prior precision $\lambda$ instead of $n\lambda$, which is not centred at $\hat\theta$; the "Bootstrap $\ll$ Rashomon $\ll$ Bayesian" ordering it gave came from that error.
 
-$$\text{Bootstrap} \ll \text{Rashomon} \ll \text{Bayesian}$$
+## What the Rashomon analysis adds
 
-In the Breast Cancer evaluation at a 3% loss tolerance, the marginal Rashomon intervals are narrower than the corresponding Bayesian intervals. The difference is in the interpretation: the Rashomon framing is operational (there exist competing models that are equally good) rather than epistemic (our beliefs about $\theta$ are diffuse). For regulatory or auditing contexts, the operational framing is often more useful, because the question "would a different equally-good model give a different answer?" is more directly actionable than "what is our posterior belief about $\theta$?"
+At a given tolerance the Rashomon set is a credible region of known level under the prior implied by the penalty; it is not an additional source of uncertainty. The analysis provides
 
-## Implications for high-stakes applications
+- exact extremes over the true set, which differ from the closed forms when the loss is not quadratic inside the set (small samples, near-separation, large tolerances); `compare_to_bayesian()` reports the ratio, so the case at hand can be identified;
+- the exact per-row flip test, a statement about an explicit competing model rather than a posterior probability;
+- tolerances in loss units, with the corresponding posterior mass reported alongside;
+- a reading in terms of competing models: "some model that cross-validation cannot distinguish from yours gives this patient the other diagnosis".
 
-The gap between bootstrap and Rashomon intervals has practical consequences in settings where individual predictions matter. Rudin (2019) argues that in high-stakes domains like medicine and criminal justice, the existence of a large Rashomon set creates both a risk and an opportunity: a risk because the deployed model may be one of many equally accurate alternatives, some of which make different predictions for the same individual; an opportunity because if the Rashomon set is large, it may contain models that are both accurate and interpretable, or both accurate and fair.
-
-rashomon-py does not directly address the fairness question, but the `compare_to_bootstrap` method makes the gap between sampling uncertainty and model multiplicity explicit:
-
-```python
-comp = rs.compare_to_bootstrap(
-    X, y,
-    n_bootstrap=500, n_rashomon=500,
-    confidence=0.90,
-    feature_names=feature_names,
-    random_state=42,
-)
-
-for row in comp['comparison']:
-    print(f"{row['feature']}: bootstrap={row['bootstrap_width']:.3f}, "
-          f"rashomon={row['rashomon_width']:.3f}, ratio={row['width_ratio']:.1f}x")
-```
-
-A width ratio near 1 means that sampling uncertainty and model multiplicity are comparable (unusual in practice). A ratio of 5--10x means that the Rashomon set contains models qualitatively more diverse than sampling variation alone would suggest.
+Fisher, Rudin & Dominici (2019) and Semenova, Rudin & Parr (2022) describe the Rashomon set as a property of the model class rather than of sampling noise. For an L2 GLM the two descriptions coincide to second order.
 
 ## References
 
-- Breiman, L. (2001). Statistical modeling: The two cultures. *Statistical Science*, 16(3), 199--231.
 - Efron, B. & Tibshirani, R. (1993). *An Introduction to the Bootstrap*. Chapman & Hall.
 - Fisher, A., Rudin, C., & Dominici, F. (2019). All models are wrong, but many are useful. *JMLR*, 20(177), 1--81.
-- Marx, C., Calmon, F., & Ustun, B. (2020). Predictive multiplicity in classification. *ICML*.
-- Rudin, C. (2019). Stop explaining black box machine learning models for high stakes decisions and use interpretable models instead. *Nature Machine Intelligence*, 1, 206--215.
 - Semenova, L., Rudin, C., & Parr, R. (2022). On the existence of simpler machine learning models. *FAccT*.

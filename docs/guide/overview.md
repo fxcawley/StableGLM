@@ -25,7 +25,7 @@ The loss surface for a GLM with L2 regularization is convex, so the Rashomon set
 
 Standard model evaluation reports a single fit and quantifies sampling uncertainty (bootstrap CIs, p-values). The Rashomon set addresses a different question: how many qualitatively different models perform nearly as well? If the answer is "many," then any single model's explanations are, to some degree, artifacts of the particular optimum the solver found. Fisher, Rudin, & Dominici (2019) make this point in the context of variable importance; Marx, Calmon, & Ustun (2020) formalize it for predictions.
 
-For GLMs, the Rashomon set is closely related to likelihood-ratio confidence regions from classical statistics. The `LR_alpha` calibration mode makes this bridge explicit, setting $\varepsilon = \chi^2_{d,1-\alpha} / (2n)$ via Wilks' theorem.
+For an L2 GLM the Rashomon set is, to second order, a highest-posterior-density region of the Laplace posterior with mass $F_{\chi^2_d}(2n\varepsilon)$; the `LR_alpha` calibration inverts this, setting $\varepsilon = \chi^2_{d,1-\alpha} / (2n)$, and `("profile", alpha)` gives profile-likelihood intervals for unpenalized fits. See {doc}`why_not_bootstrap`.
 
 ## Supported models
 

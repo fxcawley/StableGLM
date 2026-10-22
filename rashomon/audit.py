@@ -436,10 +436,20 @@ def audit(
     coef_hat = rs._theta_hat[offset:]
     do_exact = exact_ranges is True or (exact_ranges == "auto" and n * spec.n_features**2 <= 5e6)
     extremes: Optional[Array] = None
+    ellipsoid_error: Optional[float] = None
     if do_exact:
         extremes = rs.coef_extremes()
         low, high = extremes[offset:, 0], extremes[offset:, 1]
         coefficient_ranges = "exact"
+        # how far the Hessian-ellipsoid bounds are from the exact ones, relative to the ellipsoid half-width
+        ell = rs.coef_intervals()
+        ell_half = np.maximum(ell[:, 1] - rs._theta_hat, 1e-300)
+        ellipsoid_error = float(np.max(np.abs(np.c_[rs._theta_hat - extremes[:, 0], extremes[:, 1] - rs._theta_hat] / ell_half[:, None] - 1.0)))
+        if ellipsoid_error > 0.1:
+            notes.append(
+                f"the Hessian-ellipsoid approximation would misplace a coefficient bound by {ellipsoid_error:.0%} "
+                "of its half-width here; the exact ranges were needed"
+            )
     else:
         low = samples[:, offset:].min(axis=0)
         high = samples[:, offset:].max(axis=0)
@@ -491,6 +501,7 @@ def audit(
         "coef_max_abs_diff_vs_model": coef_diff,
         "model_loss_gap": user_gap,
         "sampler_diagnostics": diag,
+        "ellipsoid_error": ellipsoid_error,
         "notes": notes,
         "_preprocessor": model[:-1] if (hasattr(model, "steps") and len(model.steps) > 1) else None,
         "_coef_box": extremes,

@@ -186,6 +186,21 @@ def test_unsupported_models_raise(cancer, model, match):
         audit(model, X, y, tolerance=0.02, **_fast())
 
 
+def test_ellipsoid_error_is_reported_with_exact_ranges(cancer):
+    """With exact ranges the report says how far the Hessian ellipsoid's bounds would have been off."""
+    X, y = cancer
+    model = LogisticRegression(max_iter=2000).fit(X, y)
+    small = audit(model, X, y, tolerance=0.01, **_fast())
+    err = small.details["ellipsoid_error"]
+    assert 0.0 <= err < 0.1 and not any("ellipsoid" in n for n in small.details["notes"])
+    large = audit(model, X, y, tolerance=0.3, **_fast())
+    assert large.details["ellipsoid_error"] > err
+    if large.details["ellipsoid_error"] > 0.1:
+        assert any("Hessian-ellipsoid approximation would misplace" in n for n in large.details["notes"])
+    sampled = audit(model, X, y, tolerance=0.01, exact_ranges=False, **_fast())
+    assert sampled.details["ellipsoid_error"] is None
+
+
 # --------------------------------------------------------------- input robustness
 
 

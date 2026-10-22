@@ -32,38 +32,21 @@ explicit: $\epsilon = \chi^2_{d,1-\alpha} / (2n)$ via Wilks' theorem.
 `RashomonSet` supports four calibration modes (`audit()` exposes them through its `tolerance` argument; see {doc}`choosing_epsilon`):
 - `percent_loss`: $\epsilon = \rho \cdot L(\hat{\theta})$ for a user-specified $\rho$
 - `LR_alpha`: $\epsilon = \chi^2_{d,1-\alpha} / (2n)$ via Wilks' theorem
-- `LR_alpha_highdim`: high-dimensional correction (experimental)
 - `absolute`: $\epsilon$ given directly, in the units of the loss (used by the `"cv"` and `("profile", alpha)` tolerances)
 
-## Three Kinds of Uncertainty
+## Relation to classical intervals
 
-Standard statistical tools quantify different aspects of model uncertainty:
-
-**Bootstrap CIs** measure **sampling uncertainty**: how much would $\hat\theta$ change
-if we drew a different dataset? Width shrinks as $O(1/\sqrt{n})$.
-
-**Bayesian posteriors** measure **epistemic uncertainty**: what is our belief distribution
-over $\theta$ given the data and prior? Under the Laplace approximation with a Gaussian
-prior, the posterior is an ellipsoid of the same shape as the Rashomon set but typically
-wider (it integrates over all plausible parameter values, not just near-optimal ones).
-
-**Rashomon coefficient intervals** measure **design-choice multiplicity**: how many
-qualitatively different models achieve loss within $\epsilon$ of the optimum? Under
-a fixed operational tolerance such as `percent_loss`, width is driven by $\epsilon$
-and the loss surface geometry. Under likelihood-ratio calibration, $\epsilon$ itself
-depends on $n$ through the chosen confidence-region approximation.
-
-The typical ordering is:
-
-$$\text{Bootstrap} \ll \text{Rashomon} \ll \text{Bayesian}$$
-
-| | Narrower Rashomon than Bayesian | Wider Rashomon than Bayesian |
-|---|---|---|
-| **Narrow bootstrap CIs** | Normal: standard tools suffice | Loss surface is pathologically flat |
-| **Wide bootstrap CIs** | All three agree: everything is uncertain | Rashomon set is enormous |
-
-The {doc}`case study <../examples/tutorial>` demonstrates this ordering with a 1.3x
-ellipsoidal-to-empirical ratio at d=10.
+For an L2-penalized GLM, $nL(\theta)$ is a negative log-posterior (log-likelihood plus a
+Gaussian prior with precision $n\lambda$ on the penalized coordinates), so $\hat\theta$ is
+its mode and the Laplace posterior is $N(\hat\theta, (nH)^{-1})$. To second order the
+$\varepsilon$-Rashomon set is the highest-posterior-density region of that posterior with
+mass $F_{\chi^2_d}(2n\varepsilon)$, and the coefficient ranges are
+$\hat\theta_j \pm \sqrt{2n\varepsilon}\,\mathrm{sd}_j$. With `("profile", alpha)` and no
+penalty they are the $(1-\alpha)$ profile-likelihood confidence intervals. The bootstrap
+of the penalized estimator has the sandwich variance $(nH)^{-1}J(nH)^{-1}$, which equals
+$(nH)^{-1}$ when $\lambda = 0$ and is smaller along the directions the penalty controls.
+{doc}`why_not_bootstrap` states these relations with numbers; the
+{doc}`case study <../examples/tutorial>` checks them on the breast-cancer model.
 
 ## Predictive Multiplicity
 
@@ -96,7 +79,8 @@ reflects the geometry of the loss surface.
 
 ### MCR (Model Class Reliance)
 
-The min and max permutation importance of each feature across the Rashomon set
-(Fisher, Rudin, Dominici 2019). If MCR- < 0 for a feature, there exists a near-optimal
-model where that feature is not just unnecessary but actively harmful. If MCR- > 0,
-the feature is indispensable across all good models.
+The min and max permutation importance of each feature over sampled models in the
+Rashomon set (Fisher, Rudin, Dominici 2019); the sampled extremes are inner bounds on the
+true ones. If the sampled MCR- < 0 for a feature, a near-optimal model exists where that
+feature is actively harmful. A positive sampled MCR- does not establish that the feature
+is indispensable across all good models, only across the models visited.

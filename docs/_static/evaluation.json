@@ -15,9 +15,10 @@
     "sign_stable_sampled": 3,
     "sampled_range_coverage_median": 0.7343108821865887,
     "ellipsoid_range_ratio_median": 0.9541420706096737,
+    "ellipsoid_range_ratio_min": 0.8952130826079713,
     "ellipsoid_range_ratio_max": 0.9939628752388642,
     "ess_min": 51.124125832901214,
-    "seconds_exact": 2.7157465000636876
+    "seconds_exact": 1.3181761000305414
   },
   {
     "dataset": "Breast Cancer PCA-10",
@@ -35,9 +36,10 @@
     "sign_stable_sampled": 9,
     "sampled_range_coverage_median": 0.772755973426552,
     "ellipsoid_range_ratio_median": 0.9987979018351092,
+    "ellipsoid_range_ratio_min": 0.9951813479000924,
     "ellipsoid_range_ratio_max": 1.000645814443317,
     "ess_min": 350.2794171695638,
-    "seconds_exact": 4.540271299891174
+    "seconds_exact": 1.7158999000675976
   },
   {
     "dataset": "Breast Cancer PCA-10",
@@ -55,9 +57,10 @@
     "sign_stable_sampled": 9,
     "sampled_range_coverage_median": 0.7543069419202181,
     "ellipsoid_range_ratio_median": 0.9963514203550219,
+    "ellipsoid_range_ratio_min": 0.9861874027745039,
     "ellipsoid_range_ratio_max": 1.0016946939132592,
     "ess_min": 251.77320434091024,
-    "seconds_exact": 3.78004390001297
+    "seconds_exact": 1.5556419999338686
   },
   {
     "dataset": "Breast Cancer full",
@@ -75,9 +78,10 @@
     "sign_stable_sampled": 0,
     "sampled_range_coverage_median": 0.49553057261839895,
     "ellipsoid_range_ratio_median": 0.999622836924172,
+    "ellipsoid_range_ratio_min": 0.9213171618138328,
     "ellipsoid_range_ratio_max": 1.0780031737231286,
     "ess_min": 57.66841460054492,
-    "seconds_exact": 4.383203700184822
+    "seconds_exact": 1.7910090000368655
   },
   {
     "dataset": "Breast Cancer full",
@@ -95,9 +99,10 @@
     "sign_stable_sampled": 23,
     "sampled_range_coverage_median": 0.5319469020705492,
     "ellipsoid_range_ratio_median": 0.9999876871716173,
+    "ellipsoid_range_ratio_min": 0.9900958969777519,
     "ellipsoid_range_ratio_max": 1.0118464499693933,
     "ess_min": 319.26707611258524,
-    "seconds_exact": 5.792483999859542
+    "seconds_exact": 2.47362200031057
   },
   {
     "dataset": "Breast Cancer full",
@@ -115,9 +120,10 @@
     "sign_stable_sampled": 15,
     "sampled_range_coverage_median": 0.5218286223625188,
     "ellipsoid_range_ratio_median": 0.9999707428432265,
+    "ellipsoid_range_ratio_min": 0.9729370739157815,
     "ellipsoid_range_ratio_max": 1.0269349900225202,
     "ess_min": 178.6055094006576,
-    "seconds_exact": 5.290991699788719
+    "seconds_exact": 2.456019800156355
   },
   {
     "dataset": "German Credit",
@@ -135,9 +141,10 @@
     "sign_stable_sampled": 9,
     "sampled_range_coverage_median": 0.39579777032359653,
     "ellipsoid_range_ratio_median": 0.9981637539775535,
+    "ellipsoid_range_ratio_min": 0.8997675423077173,
     "ellipsoid_range_ratio_max": 0.9999393520973273,
     "ess_min": 133.5760866677474,
-    "seconds_exact": 14.647874800022691
+    "seconds_exact": 4.152207100298256
   },
   {
     "dataset": "German Credit",
@@ -155,9 +162,10 @@
     "sign_stable_sampled": 17,
     "sampled_range_coverage_median": 0.3982548793601087,
     "ellipsoid_range_ratio_median": 0.9992988098963692,
+    "ellipsoid_range_ratio_min": 0.9492640468388172,
     "ellipsoid_range_ratio_max": 0.9999767152356986,
     "ess_min": 195.45212871898582,
-    "seconds_exact": 17.709006499964744
+    "seconds_exact": 4.190970599651337
   },
   {
     "dataset": "German Credit",
@@ -175,9 +183,10 @@
     "sign_stable_sampled": 8,
     "sampled_range_coverage_median": 0.39552721582752004,
     "ellipsoid_range_ratio_median": 0.997894753198388,
+    "ellipsoid_range_ratio_min": 0.8915189077709628,
     "ellipsoid_range_ratio_max": 0.9999304622996332,
     "ess_min": 142.6605505648974,
-    "seconds_exact": 16.3844169001095
+    "seconds_exact": 4.001707400195301
   },
   {
     "dataset": "Adult Census (5k rows)",
@@ -195,9 +204,10 @@
     "sign_stable_sampled": 27,
     "sampled_range_coverage_median": 0.22452045456157693,
     "ellipsoid_range_ratio_median": 0.9818630061085301,
+    "ellipsoid_range_ratio_min": 0.4917173273066457,
     "ellipsoid_range_ratio_max": 1.240214370064574,
     "ess_min": 6.243572786898048,
-    "seconds_exact": 239.6556123998016
+    "seconds_exact": 56.10296510020271
   },
   {
     "dataset": "Adult Census (5k rows)",
@@ -215,9 +225,10 @@
     "sign_stable_sampled": 33,
     "sampled_range_coverage_median": 0.22774900570460524,
     "ellipsoid_range_ratio_median": 0.985965806038087,
+    "ellipsoid_range_ratio_min": 0.5333655098643436,
     "ellipsoid_range_ratio_max": 1.2375147404136808,
     "ess_min": 6.030595130486831,
-    "seconds_exact": 163.39442189969122
+    "seconds_exact": 58.678309999872
   },
   {
     "dataset": "Adult Census (5k rows)",
@@ -235,8 +246,9 @@
     "sign_stable_sampled": 19,
     "sampled_range_coverage_median": 0.1868787125953187,
     "ellipsoid_range_ratio_median": 0.9599705566864134,
+    "ellipsoid_range_ratio_min": 0.374423373511837,
     "ellipsoid_range_ratio_max": 1.2240343052483307,
     "ess_min": 3.7705920417198997,
-    "seconds_exact": 172.11320620030165
+    "seconds_exact": 47.335157100111246
   }
 ]

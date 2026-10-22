@@ -84,6 +84,7 @@ def evaluate(name: str, X: np.ndarray, y: np.ndarray) -> list[dict]:
             "sign_stable_sampled": int(sampled.coefficients["sign_stable"].sum()),
             "sampled_range_coverage_median": float(np.median(smp_cover)),
             "ellipsoid_range_ratio_median": float(np.median(ell_ratio)),
+            "ellipsoid_range_ratio_min": float(np.min(ell_ratio)),
             "ellipsoid_range_ratio_max": float(np.max(ell_ratio)),
             "ess_min": exact.ess_min, "seconds_exact": t_exact,
         })
@@ -91,7 +92,7 @@ def evaluate(name: str, X: np.ndarray, y: np.ndarray) -> list[dict]:
               f"flips exact={exact.flip_rate:.1%} sampled={sampled.flip_rate:.1%} ellipsoid={ell_flip.mean():.1%} | "
               f"sign-stable exact={rows[-1]['sign_stable_exact']}/{d} sampled={rows[-1]['sign_stable_sampled']}/{d} | "
               f"sampled range coverage={np.median(smp_cover):.0%} ellipsoid/exact width={np.median(ell_ratio):.2f}x "
-              f"(max {np.max(ell_ratio):.2f}x) | ESS={exact.ess_min:.0f} | {t_exact:.0f}s", flush=True)
+              f"(min {np.min(ell_ratio):.2f}x, max {np.max(ell_ratio):.2f}x) | ESS={exact.ess_min:.0f} | {t_exact:.0f}s", flush=True)
     return rows
 
 
@@ -103,12 +104,13 @@ def markdown(results: list[dict]) -> str:
             f"| {r['dataset']} | {r['n']} | {r['d']} | {r['C_sklearn']:g} | {r['tolerance']} | {r['epsilon_over_loss']:.1%} | "
             f"{r['flip_exact']:.1%} | {r['flip_sampled']:.1%} | {r['flip_ellipsoid']:.1%} | {r['sign_stable_exact']}/{r['d']} | "
             f"{r['sign_stable_sampled']}/{r['d']} | {r['sampled_range_coverage_median']:.0%} | "
-            f"{r['ellipsoid_range_ratio_median']:.2f}x (max {r['ellipsoid_range_ratio_max']:.2f}x) | {r['ess_min']:.0f} |"
+            f"{r['ellipsoid_range_ratio_median']:.2f}x (min {r['ellipsoid_range_ratio_min']:.2f}x, max {r['ellipsoid_range_ratio_max']:.2f}x) | {r['ess_min']:.0f} |"
         )
     return "\n".join(out)
 
 
 if __name__ == "__main__":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
     results: list[dict] = []
     bc = load_breast_cancer()
     y_bc = bc.target.astype(float)

@@ -15,8 +15,10 @@ python -m ruff check rashomon tests scripts       # pinned in requirements-dev.t
 python -m mypy rashomon --ignore-missing-imports
 python -m sphinx -W -b html docs docs/_build/html # CI builds docs with -W
 python scripts/verify_tutorial_claims.py          # CI re-derives the numbers quoted in docs/examples/tutorial.md
+python scripts/generate_tutorial_breast_cancer.py --write  # ~1 min; rewrites the <!-- generated --> blocks and figures in the tutorial
 python scripts/generate_readme_figure.py          # regenerates README output + docs/_static/audit_breast_cancer.png
 python scripts/evaluate.py                        # ~15 min; regenerates docs/_static/evaluation.json and the tables in docs/evaluation.md
+python scripts/exact_vs_quadratic.py              # ~3 min; exact vs ellipsoid/ray/quartic bounds; rewrites the generated block in docs/evaluation.md (--render: from the saved json)
 ```
 
 Run scripts from the repo root with `PYTHONPATH=.` unless the package is installed with `pip install -e .`.
@@ -24,6 +26,11 @@ Run scripts from the repo root with `PYTHONPATH=.` unless the package is install
 ## Conventions
 
 - Numbers quoted in README/docs must be reproducible by a script in `scripts/`; CI checks the tutorial ones.
+  Tutorial tables live in `<!-- generated: NAME -->` blocks owned by `generate_tutorial_breast_cancer.py`;
+  prose in the tutorial and guides should quote numbers from those blocks only.
+- For an L2 GLM the ε-Rashomon set is, to second order, the HPD region of the Laplace posterior
+  `N(θ̂, (nH)⁻¹)` with mass `F_chi2_d(2nε)`; coefficient ranges are `θ̂_j ± sqrt(2nε)·sd_j`. The prior that
+  makes θ̂ the MAP has precision `n·λ`, not `λ`. Do not describe the set as a separate source of uncertainty.
 - Anything computed from sampled models is a lower bound on the true value. Say so in user-facing text.
   Coefficient ranges should use `RashomonSet.coef_extremes()` (exact) where the cost allows.
 - `RashomonSet` penalizes the intercept only if `penalize_intercept=True`; `C=np.inf` means λ = 0.

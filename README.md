@@ -49,9 +49,9 @@ The model is 95% accurate. Still, one diagnosis in six is reversed by some model
 pip install rashomon-py          # Python 3.10+; depends on numpy, scipy, scikit-learn, pandas, matplotlib
 ```
 
-## How this differs from a confidence interval
+## How this relates to a confidence interval
 
-A confidence interval or bootstrap asks how much the estimate would move under a new sample from the population. rashomon-py asks how many different models fit the data you have about equally well, and whether they agree with yours. The first is sampling uncertainty; the second is model multiplicity (Breiman's "Rashomon effect"). A coefficient can have a narrow confidence interval and still change sign across equally-good models when features are collinear, because the loss is nearly flat along the collinear directions. See [Bootstrap, Rashomon, and Bayesian intervals](https://fxcawley.github.io/StableGLM/guide/why_not_bootstrap.html) for a worked comparison.
+For an L2-penalized GLM the Rashomon set is, to second order, a highest-posterior-density region of the Laplace posterior `N(θ̂, (nH)⁻¹)` under the prior implied by the penalty, with posterior mass `F_χ²_d(2nε)`; the coefficient ranges are `θ̂_j ± √(2nε)·sd_j`. With `tolerance=("profile", α)` and no penalty they are the `(1-α)` profile-likelihood confidence intervals. The exact ranges and flips differ from these closed forms only where the loss is not quadratic inside the set, which the package measures. Bootstrap intervals of a penalized estimator are narrower than the posterior along the directions the penalty controls (the sandwich variance versus `(nH)⁻¹`), which is why collinear coefficients can have tight bootstrap intervals and still change sign across the set. See [Bootstrap, Rashomon, and Bayesian intervals](https://fxcawley.github.io/StableGLM/guide/why_not_bootstrap.html).
 
 ## What "equally good" means
 

@@ -31,6 +31,66 @@ def _sigmoid(z: Any) -> Array:
     return np.where(z >= 0, 1.0 / (1.0 + e), e / (1.0 + e))
 
 
+def _quartic_level_root(T: Array, Q: Array, eps: float, r: float) -> Array:
+    """Smallest ``tau > 0`` with ``tau²/2 + tau³T/6 + tau⁴Q/24 = eps``, elementwise, by bisection.
+
+    ``r = sqrt(2 eps)`` is the root when ``T = Q = 0`` and seeds the bracket. ``inf`` where the
+    quartic stays below ``eps`` (no boundary on that side).
+    """
+
+    def f(tau: Array) -> Array:
+        return tau * tau / 2.0 + tau**3 * T / 6.0 + tau**4 * Q / 24.0 - eps
+
+    lo = np.zeros(len(T))
+    hi = np.full(len(T), r)
+    for _ in range(12):  # grow the bracket while the quartic is still below eps
+        below = f(hi) < 0
+        if not np.any(below):
+            break
+        hi[below] *= 1.5
+    no_root = f(hi) < 0
+    for _ in range(60):
+        mid = 0.5 * (lo + hi)
+        neg = f(mid) < 0
+        lo = np.where(neg, mid, lo)
+        hi = np.where(neg, hi, mid)
+    return np.where(no_root, np.inf, 0.5 * (lo + hi))
+
+
+def _logistic_ray_root(
+    z: Array, Z: Array, y: Array, sw: Array, pen_lin: Array, pen_quad: Array, eps: float, r: float
+) -> Array:
+    """For each column ``k`` of ``Z``, the ``tau > 0`` at which the loss gap along the ray
+    ``theta_hat + tau * u_k`` equals ``eps``; ``Z[:, k] = X @ u_k`` and ``z = X @ theta_hat``.
+
+    The gap is ``mean(sw * (psi(z + tau Z) - psi(z) - y tau Z)) + pen_lin tau + pen_quad tau²``
+    with ``psi(t) = log(1 + e^t)``; it is convex in ``tau`` and 0 at ``tau = 0``, so the root is
+    unique. ``inf`` where the gap never reaches ``eps`` (a direction of recession).
+    """
+    base = np.mean(sw[:, None] * np.logaddexp(0.0, z)[:, None], axis=0)
+    score = np.mean((sw * y)[:, None] * Z, axis=0)
+
+    def gap(tau: Array) -> Array:
+        data = np.mean(sw[:, None] * np.logaddexp(0.0, z[:, None] + tau[None, :] * Z), axis=0) - base
+        return data - tau * score + pen_lin * tau + pen_quad * tau * tau - eps
+
+    k = Z.shape[1]
+    lo = np.zeros(k)
+    hi = np.full(k, r)
+    for _ in range(40):
+        below = gap(hi) < 0
+        if not np.any(below):
+            break
+        hi[below] *= 2.0
+    no_root = gap(hi) < 0
+    for _ in range(50):
+        mid = 0.5 * (lo + hi)
+        neg = gap(mid) < 0
+        lo = np.where(neg, mid, lo)
+        hi = np.where(neg, hi, mid)
+    return np.where(no_root, np.inf, 0.5 * (lo + hi))
+
+
 def _ess_geyer(chain: Array) -> float:
     """Effective sample size of a scalar chain (Geyer 1992, initial positive sequence).
 
@@ -264,7 +324,7 @@ class RashomonSet:
         - If epsilon_mode == "percent_loss": interpreted as rho in (0,1) (percentage of loss increase).
         - If epsilon_mode == "LR_alpha": interpreted as alpha in (0,1) (Chi2 significance level).
         - If epsilon_mode == "absolute": interpreted as the loss gap itself, in the units of ``L``.
-    epsilon_mode : {"percent_loss", "LR_alpha", "LR_alpha_highdim", "absolute"}
+    epsilon_mode : {"percent_loss", "LR_alpha", "absolute"}
         Calibration mode for epsilon.
     fit_intercept : bool
         If True, a column of ones is prepended to X internally and the
@@ -759,6 +819,151 @@ class RashomonSet:
             out[k, 0] = iv["min"]
             out[k, 1] = iv["max"]
         return out
+
+    def quadratic_error(self, S: Optional[Array] = None, method: str = "ray", steps: int = 1) -> Array:
+        """How far the exact range of ``sᵀθ`` departs from the Hessian ellipsoid's, estimated
+        without the full convex program.
+
+        The ellipsoid gives ``sᵀθ̂ ± r‖s‖_{H⁻¹}`` with ``r = sqrt(2ε)``, attained at
+        ``θ̂ ± r u`` with ``u = H⁻¹s / ‖s‖_{H⁻¹}``. Along that ray the true loss
+        ``L(θ̂ + t u)`` is convex in ``t`` with ``L(θ̂ + t u) = L̂ + t²/2 + O(t³)``, so the
+        ellipsoid is exact when the loss is quadratic along the ray and otherwise its
+        boundary is at the ``t`` on each side where ``L(θ̂ + t u) = L̂ + ε``.
+
+        ``method="ray"`` finds those two roots on the true loss (one-dimensional
+        bisection, ``O(n)`` per evaluation). Because the boundary points lie in the set,
+        the resulting half-ranges are inner bounds on the exact ones: the exact range is
+        at least as wide on each side, and wider only when the set's extreme point for
+        ``s`` is off the ray.
+
+        ``method="newton"`` starts from the ray boundary point and takes ``steps`` steps
+        of the exact program's own iteration: with ``g`` and ``H₀`` the gradient and
+        Hessian there, ``a = H₀⁻¹s``, ``b = H₀⁻¹g`` and ``μ = sqrt(gᵀb / sᵀa)``, the step
+        ``δ = μa − b`` solves the linearized conditions ``∇L = μs`` on the level set, and by
+        Cauchy–Schwarz ``gᵀδ ≤ 0``, so the loss first falls along ``δ`` and the point where
+        it returns to ``L̂ + ε`` is in the set. The result is still an inner bound, now
+        with the set's curvature at the boundary; one step costs one Hessian build per
+        functional (``O(n d²)``), against the dozens of the exact program.
+
+        ``method="quartic"`` uses the Taylor expansion of the loss along the ray to
+        fourth order, ``T = (1/n) Σ sw_i ψ'''(z_i)(x_iᵀu)³`` and
+        ``Q = (1/n) Σ sw_i ψ''''(z_i)(x_iᵀu)⁴`` with ``ψ''' = p(1-p)(1-2p)`` and
+        ``ψ'''' = p(1-p)(1-6p(1-p))``. It is a closed form, is not a bound, and fails
+        when a direction is dominated by few rows; it is kept for the evaluation.
+
+        Parameters
+        ----------
+        S : array of shape (m, d), optional
+            Functionals, one per row, in the internal layout (intercept first if fitted).
+            Default: the ``d`` coordinate vectors, i.e. the coefficients themselves.
+        method : {"ray", "newton", "quartic"}
+        steps : int
+            Newton steps for ``method="newton"`` (default 1).
+
+        Returns
+        -------
+        np.ndarray of shape (m, 2)
+            The relative deviation of the lower and upper half-ranges from the ellipsoid
+            half-range ``r‖s‖_{H⁻¹}``. 0 means the ellipsoid is exact there; ``inf``
+            means the loss never reaches ``L̂ + ε`` on that side (a direction of
+            recession, possible only without a penalty). Always 0 for linear models,
+            whose loss is quadratic.
+        """
+        if not self._fitted or self._theta_hat is None or self._epsilon_value is None or self._X is None:
+            raise RuntimeError("Call fit() first.")
+        if method not in ("ray", "newton", "quartic"):
+            raise ValueError("method must be 'ray', 'newton' or 'quartic'")
+        d = self._d
+        S_arr = np.eye(d) if S is None else np.asarray(S, dtype=float)
+        if S_arr.ndim == 1:
+            S_arr = S_arr[None, :]
+        if S_arr.ndim != 2 or S_arr.shape[1] != d:
+            raise ValueError(f"S must have shape (m, {d})")
+        m = S_arr.shape[0]
+        eps = float(self._epsilon_value)
+        r = np.sqrt(2.0 * eps)
+        out = np.zeros((m, 2), dtype=float)
+        if self.estimator != "logistic":
+            return out
+        X, y, theta = self._X, self._y, self._theta_hat
+        assert y is not None
+        sw = self._sw_or_ones()
+        lam = float(self._lambda or 0.0)
+        mask = self._reg_mask_or_ones()
+        z = X @ theta
+        p = _sigmoid(z)
+        w3 = sw * p * (1.0 - p) * (1.0 - 2.0 * p)
+        w4 = sw * p * (1.0 - p) * (1.0 - 6.0 * p * (1.0 - p))
+        chunk = max(1, int(2e7 // max(self._n, 1)))
+        for start in range(0, m, chunk):
+            Sc = S_arr[start:start + chunk]
+            U = self._hinv(Sc.T)  # (d, k): H^{-1} s
+            norms = np.sqrt(np.maximum(np.sum(Sc.T * U, axis=0), 1e-300))
+            U = U / norms[None, :]
+            Z = X @ U  # (n, k): x_i^T u
+            for side, col in ((-1.0, 0), (1.0, 1)):
+                if method == "quartic":
+                    T = (w3 @ Z**3) / self._n
+                    Q = (w4 @ Z**4) / self._n
+                    tau = _quartic_level_root(side * T, Q, eps, r)
+                else:
+                    # penalty along the ray: lam * t * u'M theta + lam/2 * t^2 * u'Mu
+                    pen_lin = side * lam * (U * (mask * theta)[:, None]).sum(axis=0)
+                    pen_quad = 0.5 * lam * (mask[:, None] * U * U).sum(axis=0)
+                    tau = _logistic_ray_root(z, side * Z, y, sw, pen_lin, pen_quad, eps, r)
+                dev = np.where(np.isfinite(tau), tau / r - 1.0, np.inf)
+                if method == "newton":
+                    assert self._L_hat is not None
+                    target = float(self._L_hat) + eps
+                    for k in np.flatnonzero(np.isfinite(tau)):
+                        s = side * Sc[k]
+                        theta_k = self._newton_inner_point(s, theta + side * tau[k] * U[:, k], target, steps)
+                        dev[k] = float(s @ (theta_k - theta)) / (r * norms[k]) - 1.0
+                out[start:start + chunk, col] = dev
+        return out
+
+    def _newton_inner_point(self, s: Array, theta0: Array, target: float, steps: int) -> Array:
+        """From a boundary point ``theta0`` (``L = target``), move toward ``max sᵀθ`` on the set.
+
+        Each step linearizes ``∇L(θ) = μ s`` at the current point and returns to the level set
+        along the step direction by bisection, so the result is in the set (up to the loss
+        tolerance) and ``sᵀθ`` does not decrease. See :meth:`quadratic_error`.
+        """
+        X, y, sw = self._X, self._y, self._sw_or_ones()
+        assert X is not None and y is not None
+        lam, mask, n = float(self._lambda or 0.0), self._reg_mask_or_ones(), self._n
+        th = theta0
+        for _ in range(max(int(steps), 0)):
+            p = _sigmoid(X @ th)
+            g = X.T @ (sw * (p - y)) / n + lam * mask * th
+            w = sw * p * (1.0 - p)
+            H0 = (X * w[:, None]).T @ X / n + lam * np.diag(mask)
+            try:
+                L0 = np.linalg.cholesky(H0)
+            except np.linalg.LinAlgError:
+                break
+            a = np.linalg.solve(L0.T, np.linalg.solve(L0, s))
+            b = np.linalg.solve(L0.T, np.linalg.solve(L0, g))
+            mu2 = float(g @ b) / max(float(s @ a), 1e-300)
+            if mu2 <= 0.0:
+                break
+            delta = np.sqrt(mu2) * a - b
+            if float(s @ delta) <= 0.0:
+                break
+            lo, hi = 0.0, 1.0
+            while self.objective(th + hi * delta) <= target and hi < 1024.0:
+                hi *= 2.0
+            if self.objective(th + hi * delta) <= target:
+                th = th + hi * delta  # the loss never returns to the level along delta: take the far point
+                continue
+            for _ in range(50):
+                mid = 0.5 * (lo + hi)
+                if self.objective(th + mid * delta) <= target:
+                    lo = mid
+                else:
+                    hi = mid
+            th = th + lo * delta
+        return th
 
     # -------------------------- Ellipsoid sampler ---------------------------
     def _hessian_matrix(self, force_recompute: bool = False) -> Array:
@@ -1632,28 +1837,12 @@ class RashomonSet:
             warnings.warn("Wilks preconditions violated (penalized/high-dim). Falling back to percent_loss.", stacklevel=2)
             return 0.05 * float(self._L_hat), None
         if mode == "LR_alpha_highdim":
-            alpha = float(self.epsilon)
-            if not _HAS_SCIPY:
-                warnings.warn("scipy not available; falling back to percent_loss calibration", stacklevel=2)
-                return 0.05 * float(self._L_hat), None
-            if not (0.0 < alpha < 1.0):
-                warnings.warn("LR_alpha_highdim expects alpha in (0,1); clipping", stacklevel=2)
-                alpha = float(np.clip(alpha, 1e-12, 1 - 1e-12))
-            kappa = self._d / self._n
-            if kappa >= 0.9:
-                warnings.warn(
-                    f"d/n = {kappa:.2f} is too large for the Sur-Candès correction. "
-                    "Falling back to percent_loss.",
-                    stacklevel=2,
-                )
-                return 0.05 * float(self._L_hat), None
-            # Sur-Candès (2019) adjustment: under proportional asymptotics
-            # d/n -> kappa, the LRT statistic 2n*DeltaL is inflated by
-            # a factor 1/(1-kappa) relative to chi^2_d.
-            # For penalized models, apply a Bartlett-type correction.
-            correction = 1.0 / max(1.0 - kappa, 0.1)
-            eps = correction * 0.5 * chi2.ppf(1.0 - alpha, df=self._d) / self._n
-            return float(eps), alpha
+            raise ValueError(
+                "epsilon_mode='LR_alpha_highdim' has been removed: it inflated the chi-square quantile by "
+                "1/(1 - d/n), which is not the Sur & Candès (2019) correction it was described as. No "
+                "high-dimensional LR calibration is provided; use an 'absolute' or 'percent_loss' tolerance "
+                "(or audit(..., tolerance='cv')) when d/n is not small."
+            )
         warnings.warn("Unknown epsilon_mode; defaulting to percent_loss 5%", stacklevel=2)
         return 0.05 * float(self._L_hat), None
 
@@ -2477,13 +2666,12 @@ class RashomonSet:
 
         .. note::
 
-            These first-order bounds are typically **narrower** than the
-            sampling-based MCR from :meth:`model_class_reliance`, because
-            the linearization underestimates the curvature of importance
-            as a function of theta. Use :meth:`model_class_reliance` with
-            ``sampler="hitandrun"`` for definitive MCR bounds; use this
-            method for fast, conservative (inner) approximations or when
-            sampling is too expensive.
+            These are linearized estimates, not bounds: the importance is not a
+            linear function of theta, so the true extremes over the set can lie on
+            either side of them. They are typically narrower than the sampled
+            extremes from :meth:`model_class_reliance`, which are themselves inner
+            bounds (the true extremes are at least as far out). Neither method
+            computes the exact MCR; nothing in this package does.
 
         Parameters
         ----------
@@ -2897,12 +3085,15 @@ class RashomonSet:
         random_state: int | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """Compute discrepancy: max disagreement rate between models in Rashomon set.
+        """Estimates of the discrepancy: the largest disagreement rate between two models in the set.
 
-        Discrepancy measures the worst-case fraction of instances on which two models
-        disagree. We compute:
-        1. Upper bound via margin intervals (how many intervals straddle threshold)
-        2. Empirical estimate via sampled model pairs
+        The exact discrepancy is not computed. Two estimates are returned: the fraction of
+        rows whose Hessian-ellipsoid margin interval straddles the threshold, which
+        estimates an upper bound (not rigorously, since the ellipsoid is an approximation
+        of the set), and the disagreement rates of random pairs of sampled models, whose
+        maximum is an inner bound. A rigorous upper bound is the exact flip rate from
+        :func:`rashomon.audit`: two models can disagree on a row only if at least one of
+        them disagrees with the fitted model there.
 
         Parameters
         ----------
@@ -2929,10 +3120,14 @@ class RashomonSet:
         Returns
         -------
         result : dict
-            - "discrepancy_bound": upper bound on max disagreement rate
-            - "discrepancy_empirical": empirical estimate from sampled pairs
-            - "max_pair_disagreement": maximum observed disagreement
-            - "mean_pair_disagreement": average disagreement across pairs
+            - "discrepancy_bound": fraction of rows whose ellipsoid margin interval straddles
+              the threshold (estimate of an upper bound; not rigorous)
+            - "discrepancy_extremal_pair": disagreement between the two ellipsoid points along
+              the mean straddling direction (a heuristic, not the extremal pair)
+            - "max_pair_disagreement": largest disagreement among the sampled pairs (inner bound)
+            - "mean_pair_disagreement": average disagreement across the sampled pairs
+            - "discrepancy_empirical": the same average, kept for compatibility; it is not an
+              estimate of the maximum
             - "threshold": decision threshold used
 
         Examples
@@ -3336,25 +3531,34 @@ class RashomonSet:
         feature_names: Optional[list] = None,
         random_state: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """Compare Rashomon VIC intervals to Laplace-approximate Bayesian credible intervals.
+        """Compare the Rashomon set to the Laplace posterior of the fitted model.
 
-        Under a Gaussian prior ``N(0, (1/lambda)I)`` and the Laplace approximation,
-        the posterior is ``N(theta_hat, H_posterior^{-1})`` where
-        ``H_posterior = sum_i w_i x_i x_i^T + lambda*I``.
+        The fitted objective is ``L(θ) = mean loss + (λ/2) θᵀMθ``, so ``n·L(θ)`` is a
+        negative log-posterior: the (weighted) log-likelihood plus a Gaussian prior
+        with precision ``nλ`` on the penalized coordinates and a flat prior on the
+        others. ``θ̂`` is the mode of that posterior, and its Laplace approximation is
+        ``N(θ̂, (nH)⁻¹)`` with ``H = ∇²L(θ̂)``, the Hessian used throughout this class.
+        For an unpenalized fit this is the usual asymptotic (Wald) distribution of the
+        MLE. For linear models the loss is the Gaussian negative log-likelihood with
+        unit noise variance, so the posterior is in those units.
 
-        This is NOT the same as our objective's Hessian H = (1/n)*X^T W X + lambda*I.
-        The relationship is H_posterior = n*(H - lambda*I) + lambda*I = n*H - (n-1)*lambda*I.
-
-        The comparison reveals whether the Rashomon set (VIC intervals) is
-        narrower than, wider than, or comparable to the Bayesian marginal
-        credible intervals.
+        To second order the ε-Rashomon set ``{θ : L(θ) ≤ L(θ̂) + ε}`` is the
+        highest-posterior-density region ``{θ : (θ-θ̂)ᵀ nH (θ-θ̂) ≤ 2nε}`` of this
+        posterior, whose posterior mass is ``F_{χ²_d}(2nε)`` (returned as
+        ``hpd_level``). Its projection onto coordinate ``j`` is
+        ``θ̂_j ± sqrt(2nε)·sd_j`` while the marginal ``(1-α)`` credible interval is
+        ``θ̂_j ± z_{1-α/2}·sd_j``, so under the quadratic approximation the ratio
+        of the Rashomon coefficient range to the credible interval is
+        ``sqrt(2nε)/z_{1-α/2}`` for every coordinate. The exact Rashomon ranges
+        differ from this only by the non-quadratic part of the loss inside the set.
 
         Parameters
         ----------
         n_samples : int
-            Samples from both the posterior and Rashomon set.
+            Samples from both the posterior and the Rashomon set.
         confidence : float
-            Confidence level for intervals (default 0.90).
+            Level of the marginal credible intervals and of the VIC quantile
+            intervals (default 0.90).
         feature_names : Optional[list]
             Names of the features, or of all coordinates including the intercept.
         random_state : Optional[int]
@@ -3364,109 +3568,128 @@ class RashomonSet:
         -------
         dict with:
             - 'bayesian_samples': (n_samples, d) - posterior samples
-            - 'bayesian_ci': (d, 2) - marginal credible intervals
+            - 'bayesian_ci': (d, 2) - marginal credible intervals at ``confidence``
             - 'bayesian_std': (d,) - marginal posterior std
-            - 'vic_samples': (n_samples, d) - Rashomon set samples
-            - 'vic_intervals': (d, 2) - VIC intervals at same confidence
-            - 'vic_std': (d,) - VIC std
-            - 'theta_hat': (d,) - MAP/MLE estimate
+            - 'rashomon_range': (d, 2) - coefficient ranges over the Rashomon set
+              (exact when ``n·d² ≤ 5·10⁶``, otherwise the Hessian ellipsoid)
+            - 'rashomon_range_method': "exact" or "ellipsoid"
+            - 'vic_samples': (n_samples, d) - uniform samples of the Rashomon set
+            - 'vic_intervals': (d, 2) - quantile intervals of those samples at ``confidence``
+            - 'vic_std': (d,) - std of those samples
+            - 'theta_hat': (d,) - the fitted parameters (posterior mode)
             - 'feature_names': list
             - 'confidence': float
-            - 'comparison': dict - per-feature comparison metrics
-            - 'posterior_precision': (d, d) - the posterior precision matrix
-            - 'epsilon_vs_chi2': dict - direct comparison of Rashomon radius to posterior radius
+            - 'hpd_level': posterior mass of the Rashomon set under the quadratic
+              approximation, ``F_{χ²_d}(2nε)``
+            - 'comparison': dict - per-coordinate widths and ratios
+            - 'posterior_precision': (d, d) - ``nH``
+            - 'epsilon_vs_chi2': dict - the Rashomon radius ``2ε`` against the radius
+              ``χ²_{d,1-α}/n`` of the ``(1-α)`` credible ellipsoid, both in the H-norm,
+              plus the quadratic-approximation ratio ``sqrt(2nε)/z_{1-α/2}``
         """
         if not self._fitted or self._theta_hat is None or self._epsilon_value is None:
             raise RuntimeError("Call fit() first.")
 
         d = self._d
         n = self._n
-        lam = self._lambda
+        eps = float(self._epsilon_value)
         alpha = 1.0 - confidence
         seed = self._seed if random_state is None else int(random_state)
         rng = np.random.default_rng(seed)
 
-        # Compute the posterior precision: H_post = n*H - (n-1)*lam*diag(mask)
-        H = self._hessian_matrix()
-        lam_f = float(lam) if lam is not None else 0.0
-        H_posterior = n * H - (n - 1) * lam_f * np.diag(self._reg_mask_or_ones())
-        # Ensure positive definite (prior keeps it PD)
+        # Posterior precision: n * Hessian of the mean-loss objective. The prior that
+        # makes theta_hat the MAP has precision n*lambda, which is already inside H.
+        H_posterior = n * self._hessian_matrix()
         eigvals_post = np.linalg.eigvalsh(H_posterior)
         if np.min(eigvals_post) < 1e-10:
-            H_posterior += (1e-8 - np.min(eigvals_post)) * np.eye(d)
+            H_posterior = H_posterior + (1e-8 - np.min(eigvals_post)) * np.eye(d)
 
         Sigma_posterior = np.linalg.inv(H_posterior)
 
-        # Sample from Laplace posterior: N(theta_hat, Sigma_posterior)
+        # Sample from the Laplace posterior N(theta_hat, Sigma_posterior)
         L_post = np.linalg.cholesky(Sigma_posterior)
         z_samples = rng.normal(size=(n_samples, d))
         bayesian_samples = self._theta_hat[None, :] + z_samples @ L_post.T
 
-        # Bayesian marginal credible intervals
+        # Marginal credible intervals
         from scipy.stats import norm as _norm
-        z_crit = _norm.ppf(1.0 - alpha / 2)
+        z_crit = float(_norm.ppf(1.0 - alpha / 2))
         posterior_std = np.sqrt(np.diag(Sigma_posterior))
         bayesian_ci = np.stack([
             self._theta_hat - z_crit * posterior_std,
             self._theta_hat + z_crit * posterior_std,
         ], axis=1)
 
-        # VIC from Rashomon set
+        # Coefficient ranges over the Rashomon set: exact when affordable
+        if n * d * d <= 5e6:
+            rashomon_range = self.coef_extremes()
+            range_method = "exact"
+        else:
+            rashomon_range = self.coef_intervals()
+            range_method = "ellipsoid"
+
+        # Uniform samples of the set (VIC)
         vic = self.variable_importance_cloud(
             n_samples=n_samples,
             feature_names=feature_names,
             random_state=seed,
         )
         vic_samples = vic["samples"]
-        q_lo = alpha / 2
-        q_hi = 1 - alpha / 2
         vic_intervals = np.stack([
-            np.quantile(vic_samples, q_lo, axis=0),
-            np.quantile(vic_samples, q_hi, axis=0),
+            np.quantile(vic_samples, alpha / 2, axis=0),
+            np.quantile(vic_samples, 1 - alpha / 2, axis=0),
         ], axis=1)
         vic_std = np.std(vic_samples, axis=0)
 
-        # Per-feature comparison
+        quadratic_ratio = float(np.sqrt(2.0 * n * eps)) / z_crit
         names = vic["feature_names"]
         comparison = {}
         for j in range(d):
             bayes_width = float(bayesian_ci[j, 1] - bayesian_ci[j, 0])
             vic_width = float(vic_intervals[j, 1] - vic_intervals[j, 0])
-            ratio = vic_width / bayes_width if bayes_width > 1e-12 else float("inf")
+            range_width = float(rashomon_range[j, 1] - rashomon_range[j, 0])
             comparison[names[j]] = {
                 "bayesian_width": bayes_width,
+                "range_width": range_width,
+                "range_to_bayesian_ratio": range_width / bayes_width if bayes_width > 1e-12 else float("inf"),
+                "range_to_bayesian_ratio_quadratic": quadratic_ratio,
                 "vic_width": vic_width,
-                "vic_to_bayesian_ratio": ratio,
+                "vic_to_bayesian_ratio": vic_width / bayes_width if bayes_width > 1e-12 else float("inf"),
                 "bayesian_std": float(posterior_std[j]),
                 "vic_std": float(vic_std[j]),
             }
 
-        # Direct geometric comparison: the Rashomon ellipsoid has
-        # "radius" 2*eps in the H-norm, while the posterior's (1-alpha)
-        # credible ellipsoid has "radius" chi2_{d,1-alpha} in the H_post-norm
-        eps = self._epsilon_value
+        # Both regions are ellipsoids in the H-norm (to second order for the Rashomon
+        # set): radius^2 = 2*eps for the Rashomon set, chi2_{d,1-alpha}/n for the
+        # (1-alpha) credible ellipsoid.
         rashomon_radius_sq = 2.0 * eps
         if _HAS_SCIPY:
-            posterior_radius_sq = chi2.ppf(1.0 - alpha, df=d) / n
+            posterior_radius_sq = float(chi2.ppf(1.0 - alpha, df=d)) / n
+            hpd_level = float(chi2.cdf(2.0 * n * eps, df=d))
         else:
-            posterior_radius_sq = float("nan")
+            posterior_radius_sq = hpd_level = float("nan")
 
         epsilon_vs_chi2 = {
             "rashomon_radius_sq": float(rashomon_radius_sq),
-            "posterior_radius_sq_per_n": float(posterior_radius_sq),
-            "rashomon_wider": float(rashomon_radius_sq) > float(posterior_radius_sq),
+            "posterior_radius_sq_per_n": posterior_radius_sq,
+            "rashomon_wider": float(rashomon_radius_sq) > posterior_radius_sq,
+            "hpd_level": hpd_level,
+            "range_to_bayesian_ratio_quadratic": quadratic_ratio,
         }
 
         return {
             "bayesian_samples": bayesian_samples,
             "bayesian_ci": bayesian_ci,
             "bayesian_std": posterior_std,
+            "rashomon_range": rashomon_range,
+            "rashomon_range_method": range_method,
             "vic_samples": vic_samples,
             "vic_intervals": vic_intervals,
             "vic_std": vic_std,
             "theta_hat": self._theta_hat.copy(),
             "feature_names": names,
             "confidence": confidence,
+            "hpd_level": hpd_level,
             "comparison": comparison,
             "posterior_precision": H_posterior,
             "epsilon_vs_chi2": epsilon_vs_chi2,

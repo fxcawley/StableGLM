@@ -26,7 +26,9 @@ Sets $\varepsilon = \chi^2_{1,1-\alpha} / (2n)$. For an unpenalized fit, the ran
 
 The $\varepsilon$-Rashomon set is $\mathcal{R}_\varepsilon = \{\theta : L(\theta) \leq L(\hat\theta) + \varepsilon\}$. Larger $\varepsilon$ admits more parameter vectors and produces wider coefficient distributions, higher ambiguity, and larger discrepancy. Smaller $\varepsilon$ restricts the set toward the optimum and reduces all of these. At $\varepsilon = 0$, the set is a single point and no instability is reported; this is trivially true and uninformative.
 
-The relationship between $\varepsilon$ and ambiguity is monotone but not linear. On the Breast Cancer dataset, ambiguity ranges from 8.8% at $\varepsilon = 0.5\%$ to 60.8% at $\varepsilon = 10\%$, with a phase-transition region (roughly 1--5% for this dataset) in which ambiguity increases rapidly. Below this range, the Rashomon set is small enough that most predictions are stable. Above it, the set admits models that are meaningfully different in their predictions.
+The relationship between $\varepsilon$ and ambiguity is monotone but not linear. On the Breast Cancer dataset with scikit-learn's default logistic regression, the exact flip rate goes from 3.9% at a tolerance of 0.5% of the loss to 17.4% at the `"cv"` default (11.9% of the loss), and the number of sign-stable coefficients from 9 of 10 to 1 of 10 (the full sweep is in the {doc}`tutorial <../examples/tutorial>`).
+
+A useful companion to any tolerance is the posterior mass it corresponds to. For an L2 GLM the $\varepsilon$-Rashomon set is, to second order, the highest-posterior-density region of the Laplace posterior with mass $F_{\chi^2_d}(2n\varepsilon)$ (see {doc}`why_not_bootstrap`). On that dataset a tolerance of 1% of the loss is a 0.1% region, 5% of the loss is a 30% region and the `"cv"` default is a 94.6% region. `RashomonSet.compare_to_bayesian()` reports the level as `hpd_level`.
 
 ## Calibration modes of `RashomonSet`
 
@@ -44,9 +46,7 @@ Sets $\varepsilon$ to the given loss gap directly, in the units of the training 
 rs = RashomonSet(epsilon=0.03, epsilon_mode="percent_loss")
 ```
 
-Sets $\varepsilon = \rho \cdot L(\hat\theta)$. At $\rho = 0.03$, the Rashomon set contains all models whose loss is within 3% of the best achievable loss. This is the default mode and is interpretable without further context: a 3% loss tolerance is a 3% loss tolerance regardless of the dataset.
-
-As a rough guide: $\rho = 0.01$ is strict (instability here is severe), $\rho = 0.03$ is moderate, and $\rho = 0.05$--$0.10$ is permissive and may overstate instability.
+Sets $\varepsilon = \rho \cdot L(\hat\theta)$. At $\rho = 0.03$, the Rashomon set contains all models whose loss is within 3% of the best achievable loss. This is the default mode of `RashomonSet`. It is not comparable across datasets: the set's posterior mass is $F_{\chi^2_d}(2n\rho L(\hat\theta))$, which grows with $n$ at fixed $\rho$. One percent of the loss is a region of 0.1% posterior mass on the breast-cancer model ($n = 569$) and would be a large region at $n = 50{,}000$. Report the mass with the percentage, or use a calibration that scales with $n$.
 
 ### Likelihood-ratio inversion
 
@@ -56,13 +56,7 @@ rs = RashomonSet(epsilon=0.05, epsilon_mode="LR_alpha")
 
 Sets $\varepsilon = \chi^2_{d,1-\alpha} / (2n)$ via Wilks' theorem. This connects the Rashomon set to classical likelihood-ratio confidence regions, which provides a natural calibration for audiences familiar with statistical inference. At $\alpha = 0.05$, the Rashomon set approximates the 95% LR confidence region for the parameters.
 
-### High-dimensional correction
-
-```python
-rs = RashomonSet(epsilon=0.05, epsilon_mode="LR_alpha_highdim")
-```
-
-Applies a correction for the $d/n \not\ll 1$ regime (Sur & Candès, 2019). This is experimental and should be used with caution.
+Wilks' theorem assumes $d/n \to 0$. When $d/n$ is not small the likelihood-ratio statistic is not $\chi^2_d$ (Sur & Candès, 2019, derive its limit for unpenalized logistic regression), and the package offers no calibration for that regime; use an absolute or percent-of-loss tolerance, or the `"cv"` default of `audit()`. An earlier `LR_alpha_highdim` mode inflated the $\chi^2$ quantile by $1/(1-d/n)$; that factor is not the Sur-Candès correction and the mode was removed.
 
 ## Sensitivity analysis
 
@@ -85,9 +79,7 @@ for tol in [0.005, 0.01, 0.02, 0.03, 0.05, 0.10]:
           f"sign-stable features={len(report.stable_features)}/{report.n_features}")
 ```
 
-The transition point, the tolerance at which ambiguity begins to increase rapidly, is often more informative than any individual number. On the Breast Cancer dataset, even at a strict 0.5% tolerance, 8.8% of patients have ambiguous diagnoses, which suggests that the multiplicity is not an artifact of a permissive tolerance but a property of the data and model class.
-
-A diagnostic sweep on German Credit at varying regularization strength illustrates that the multiplicity is persistent: ambiguity remains above 80% across a wide range of regularization strengths at 3% loss tolerance, which indicates that the multiplicity is a property of the data, not an artifact of a particular regularization choice.
+The sweep gives, for each conclusion, the tolerance at which it fails. On the Breast Cancer dataset the sign of the texture coefficient holds at every tolerance in the sweep, the signs of radius and perimeter fail at 1% of the loss and that of area at 2%, and 3.9% of rows can flip at 0.5% of the loss, a region of less than 0.1% posterior mass. Which of these is relevant depends on the claim being made.
 
 ## Common failure modes in interpretation
 
